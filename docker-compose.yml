@@ -1,0 +1,12 @@
+services:
+  app:
+    image: seoki/aideep-ws:${IMAGE_TAG:-develop}
+    container_name: aideep-ws
+
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      PORT: "3321"
+
+    restart: unless-stopped

@@ -1,0 +1,104 @@
+// ⚠️ Aideep_backend/prisma/schema.prisma 의 축소 사본입니다.
+//    - 실시간 서버가 실제로 읽고 쓰는 모델만 남겼습니다.
+//    - 삭제된 모델(users / workspaces / edges / oauth_accounts)을 가리키던 관계 필드는
+//      양쪽에서 제거하고 FK 스칼라 컬럼만 남겼습니다. 복사된 코드가 relation include를
+//      쓰지 않으므로 안전합니다.
+//    - 이 스키마로는 절대 `prisma migrate` 를 돌리지 않습니다. migrate 소유권은
+//      Aideep_backend(추후 Spring Boot)에만 있습니다. 여기서는 `prisma generate` 만 사용합니다.
+//    - 공유 모델이 변경되면 이 파일도 함께 갱신해야 합니다.
+
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["partialIndexes"]
+  moduleFormat    = "cjs"
+  runtime         = "nodejs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model nodes {
+  node_id          String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title            String?            @db.VarChar(500)
+  content          Json?
+  version          Int                @default(1)
+  node_type        node_type_enum     @default(DATA)
+  position_x       Float?
+  position_y       Float?
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime           @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?          @db.Timestamptz(6)
+  workspace_id     String             @db.Uuid
+  depth            Int?               @default(0)
+  yjs_state        Bytes?
+  search_text      String?            @default(dbgenerated("(((COALESCE(title, ''::character varying))::text || ' '::text) || COALESCE((content ->> 'markdownBody'::text), ''::text))"))
+  file_attachments file_attachments[]
+
+  @@index([workspace_id], map: "idx_nodes_workspace")
+  @@index([workspace_id, updated_at], map: "idx_nodes_workspace_updated")
+  @@index([search_text(ops: raw("gin_trgm_ops"))], map: "idx_nodes_search_trgm", type: Gin, where: raw("(deleted_at IS NULL)"))
+}
+
+model users_workspaces {
+  user_id      String              @db.Uuid
+  workspace_id String              @db.Uuid
+  role         workspace_role_enum @default(EDITOR)
+  joined_at    DateTime            @default(now()) @db.Timestamptz(6)
+  deleted_at   DateTime?           @db.Timestamptz(6)
+
+  @@id([user_id, workspace_id])
+}
+
+model files {
+  file_id          String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  file_url         String             @db.VarChar(2048)
+  s3_key           String             @db.VarChar(1024)
+  mime_type        String             @db.VarChar(100)
+  size             Int
+  owner_user_id    String             @db.Uuid
+  workspace_id     String             @db.Uuid
+  status           file_status_enum   @default(PENDING)
+  orphaned_at      DateTime?          @db.Timestamptz(6)
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime           @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?          @db.Timestamptz(6)
+  file_attachments file_attachments[]
+
+  @@index([owner_user_id], map: "idx_files_owner")
+  @@index([workspace_id], map: "idx_files_workspace")
+  @@index([status], map: "idx_files_status")
+}
+
+model file_attachments {
+  file_id    String   @db.Uuid
+  node_id    String   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  files      files    @relation(fields: [file_id], references: [file_id], onDelete: Cascade, onUpdate: NoAction)
+  nodes      nodes    @relation(fields: [node_id], references: [node_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([file_id, node_id])
+  @@index([node_id], map: "idx_file_attachments_node")
+  @@index([file_id], map: "idx_file_attachments_file")
+}
+
+enum node_type_enum {
+  PROJECT
+  DATA
+  RESOURCE
+  ARCHIVE
+}
+
+enum workspace_role_enum {
+  OWNER
+  VIEWER
+  EDITOR
+}
+
+enum file_status_enum {
+  PENDING
+  ACTIVE
+  ORPHAN
+  DELETED
+}

@@ -1,0 +1,85 @@
+name: Build, Deploy & Push
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_REPO: seoki/aideep-ws
+
+jobs:
+  build-and-deploy:
+    runs-on: [self-hosted, macOS, X64]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Set image tag (branch + commit-message slug)
+        id: meta
+        env:
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          RAW=$(git log -1 --pretty=%s)
+          SLUG=$(printf '%s' "$RAW" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9._-]+/-/g; s/-+/-/g; s/^-+//; s/-+$//' \
+            | cut -c1-80)
+          if [ -z "$SLUG" ]; then SLUG="${SHA:0:7}"; fi
+          {
+            echo "slug=$SLUG"
+            echo "branch_tag=${IMAGE_REPO}:${BRANCH}"
+            echo "msg_tag=${IMAGE_REPO}:${BRANCH}-${SLUG}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build image (docker build)
+        env:
+          BRANCH_TAG: ${{ steps.meta.outputs.branch_tag }}
+          MSG_TAG: ${{ steps.meta.outputs.msg_tag }}
+        run: |
+          docker build \
+            -t "$BRANCH_TAG" \
+            -t "$MSG_TAG" \
+            .
+
+      - name: Deploy (compose up)
+        env:
+          BRANCH: ${{ github.ref_name }}
+          SLUG: ${{ steps.meta.outputs.slug }}
+        run: |
+          IMAGE_TAG="${BRANCH}-${SLUG}" docker compose up -d
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push to Docker Hub
+        env:
+          BRANCH_TAG: ${{ steps.meta.outputs.branch_tag }}
+          MSG_TAG: ${{ steps.meta.outputs.msg_tag }}
+        run: |
+          docker push "$MSG_TAG"
+          docker push "$BRANCH_TAG"
+
+      - name: Prune local images (keep last 3 commit-msg tags per branch)
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: ./scripts/prune-local-images.sh "$IMAGE_REPO" "$BRANCH" 3
+
+      - name: Prune Docker Hub tags (keep last 3 commit-msg tags per branch)
+        env:
+          BRANCH: ${{ github.ref_name }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: ./scripts/prune-hub-tags.sh "$IMAGE_REPO" "$BRANCH" 3
