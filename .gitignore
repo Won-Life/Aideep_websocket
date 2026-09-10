@@ -41,3 +41,6 @@ pids
 
 # Prisma v7 generated client
 /src/generated
+
+# oh-my-claudecode 상태
+.omc/
