@@ -2,16 +2,16 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { RedisService } from '@global/redis/redis.service';
 import { WsGateway } from '@domain/ws/controller/ws.gateway';
 import {
-  REALTIME_CHANNEL,
-  REALTIME_CONTRACT_VERSION,
-  RealtimeEnvelope,
+  EVENT_BUS_CHANNEL,
+  EVENT_BUS_CONTRACT_VERSION,
+  EventBusEnvelope,
   WsEvent,
   YjsUpdatePayload
-} from '../type/realtime-bus.contract';
+} from '../type/event-bus.contract';
 
 @Injectable()
-export class RealtimeBusSubscriber implements OnModuleInit {
-  private readonly logger = new Logger(RealtimeBusSubscriber.name);
+export class EventBusSubscriber implements OnModuleInit {
+  private readonly logger = new Logger(EventBusSubscriber.name);
 
   constructor(
     private readonly redisService: RedisService,
@@ -19,12 +19,11 @@ export class RealtimeBusSubscriber implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    const subscriber =
-      await this.redisService.createSubscriber('realtime-bus');
-    await subscriber.subscribe(REALTIME_CHANNEL, (message) =>
+    const subscriber = await this.redisService.createSubscriber('event-bus');
+    await subscriber.subscribe(EVENT_BUS_CHANNEL, (message) =>
       this.handleMessage(message)
     );
-    this.logger.log(`Subscribed to ${REALTIME_CHANNEL}`);
+    this.logger.log(`Subscribed to ${EVENT_BUS_CHANNEL}`);
   }
 
   /**
@@ -33,9 +32,9 @@ export class RealtimeBusSubscriber implements OnModuleInit {
    */
   handleMessage(message: string): void {
     try {
-      const envelope = JSON.parse(message) as RealtimeEnvelope;
+      const envelope = JSON.parse(message) as EventBusEnvelope;
 
-      if (envelope?.v !== REALTIME_CONTRACT_VERSION) {
+      if (envelope?.v !== EVENT_BUS_CONTRACT_VERSION) {
         this.logger.warn(`Unsupported envelope version: ${envelope?.v}`);
         return;
       }

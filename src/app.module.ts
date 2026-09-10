@@ -9,7 +9,7 @@ import { MetricsModule } from '@global/common/metrics';
 import { RealtimeAuthModule } from '@global/auth/realtime-auth.module';
 import { YjsModule } from '@global/yjs/yjs.module';
 import { WsModule } from '@domain/ws/ws.module';
-import { RealtimeBusModule } from '@domain/realtime-bus/realtime-bus.module';
+import { EventBusModule } from '@domain/event-bus/event-bus.module';
 import { NodeContentModule } from '@domain/node-content/node-content.module';
 import { HealthController } from './health.controller';
 
@@ -25,7 +25,7 @@ import { HealthController } from './health.controller';
     RealtimeAuthModule,
     YjsModule,
     WsModule,
-    RealtimeBusModule,
+    EventBusModule,
     NodeContentModule
   ],
   controllers: [HealthController]

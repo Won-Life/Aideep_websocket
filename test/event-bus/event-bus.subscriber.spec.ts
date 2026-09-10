@@ -1,19 +1,19 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { RedisService } from '@global/redis/redis.service';
 import { WsGateway } from '@domain/ws/controller/ws.gateway';
-import { RealtimeBusSubscriber } from '@domain/realtime-bus/service/realtime-bus.subscriber';
+import { EventBusSubscriber } from '@domain/event-bus/service/event-bus.subscriber';
 import {
-  REALTIME_CONTRACT_VERSION,
-  RealtimeEnvelope
-} from '@domain/realtime-bus/type/realtime-bus.contract';
+  EVENT_BUS_CONTRACT_VERSION,
+  EventBusEnvelope
+} from '@domain/event-bus/type/event-bus.contract';
 import { WsEvent } from '@domain/ws/type/ws.event';
 
 const envelope = (
-  kind: RealtimeEnvelope['kind'],
-  payload: RealtimeEnvelope['payload']
+  kind: EventBusEnvelope['kind'],
+  payload: EventBusEnvelope['payload']
 ): string =>
   JSON.stringify({
-    v: REALTIME_CONTRACT_VERSION,
+    v: EVENT_BUS_CONTRACT_VERSION,
     kind,
     messageId: 'msg-1',
     publishedAt: '2026-09-04T12:00:00.000Z',
@@ -21,8 +21,8 @@ const envelope = (
     payload
   });
 
-describe('RealtimeBusSubscriber', () => {
-  let subscriber: RealtimeBusSubscriber;
+describe('EventBusSubscriber', () => {
+  let subscriber: EventBusSubscriber;
   let wsGateway: { broadcast: jest.Mock; broadcastYjsUpdate: jest.Mock };
 
   beforeEach(async () => {
@@ -30,13 +30,13 @@ describe('RealtimeBusSubscriber', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        RealtimeBusSubscriber,
+        EventBusSubscriber,
         { provide: RedisService, useValue: { createSubscriber: jest.fn() } },
         { provide: WsGateway, useValue: wsGateway }
       ]
     }).compile();
 
-    subscriber = module.get<RealtimeBusSubscriber>(RealtimeBusSubscriber);
+    subscriber = module.get<EventBusSubscriber>(EventBusSubscriber);
   });
 
   it('dispatches WORKSPACE_EVENT payload to the gateway untouched', () => {
