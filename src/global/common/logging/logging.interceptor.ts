@@ -22,6 +22,9 @@ export class LoggingInterceptor implements NestInterceptor {
   ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    // WS 이벤트는 무시 (전역 인터셉터는 게이트웨이에도 적용된다)
+    if (context.getType() !== 'http') return next.handle();
+
     const req = context.switchToHttp().getRequest<Request>();
     const res = context.switchToHttp().getResponse<Response>();
     const { method, url } = req;
