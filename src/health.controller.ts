@@ -1,6 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { Namespace } from 'socket.io';
-import { WsGateway } from './ws/ws.gateway';
+import { WsGateway } from '@domain/ws/controller/ws.gateway';
 
 @Controller('healthz')
 export class HealthController {

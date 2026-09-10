@@ -1,10 +1,10 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
-import { AllExceptionsFilter } from './common/error';
-import { ResponseInterceptor } from './common/response/response.interceptor';
-import { LoggingInterceptor } from './common/logging/logging.interceptor';
-import { HttpMetricsInterceptor } from './common/metrics';
+import { AllExceptionsFilter } from '@global/common/error';
+import { ResponseInterceptor } from '@global/common/response/response.interceptor';
+import { LoggingInterceptor } from '@global/common/logging/logging.interceptor';
+import { HttpMetricsInterceptor } from '@global/common/metrics';
 import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
 
 async function bootstrap() {

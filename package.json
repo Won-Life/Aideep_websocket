@@ -101,19 +101,28 @@
       "json",
       "ts"
     ],
-    "rootDir": "src",
+    "rootDir": ".",
+    "roots": [
+      "<rootDir>/test"
+    ],
     "testRegex": ".*\\.spec\\.ts$",
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/dist/"
+    ],
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "collectCoverageFrom": [
-      "**/*.(t|j)s"
+      "src/**/*.(t|j)s"
     ],
-    "coverageDirectory": "../coverage",
+    "coverageDirectory": "./coverage",
     "testEnvironment": "node",
     "moduleNameMapper": {
-      "^src/(.*)$": "<rootDir>/$1",
-      "^uuid$": "<rootDir>/../test/mocks/uuid.ts"
+      "^@domain/(.*)$": "<rootDir>/src/domain/$1",
+      "^@global/(.*)$": "<rootDir>/src/global/$1",
+      "^@generated/(.*)$": "<rootDir>/src/generated/$1",
+      "^uuid$": "<rootDir>/test/mocks/uuid.ts"
     }
   }
 }

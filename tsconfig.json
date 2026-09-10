@@ -18,6 +18,17 @@
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": false,
     "strictBindCallApply": false,
-    "noFallthroughCasesInSwitch": false
+    "noFallthroughCasesInSwitch": false,
+    "paths": {
+      "@domain/*": [
+        "src/domain/*"
+      ],
+      "@global/*": [
+        "src/global/*"
+      ],
+      "@generated/*": [
+        "src/generated/*"
+      ]
+    }
   }
 }
