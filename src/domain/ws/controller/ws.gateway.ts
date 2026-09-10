@@ -20,6 +20,7 @@ import { YjsDocManager } from '@global/yjs/yjs-doc-manager';
 import { YjsWsAwarenessService } from '@global/yjs/yjs-ws-awareness.service';
 import { MembershipRepository } from '@domain/membership/repository/membership.repository';
 import { PresenceService } from '../service/presence.service';
+import { WsLogService } from '../service/ws-log.service';
 import { WsMetricsService } from '@global/common/metrics';
 import {
   YJS_EVENT,
@@ -51,7 +52,8 @@ export class WsGateway
     private readonly yjsWsAwareness: YjsWsAwarenessService,
     private readonly membershipRepository: MembershipRepository,
     private readonly presenceService: PresenceService,
-    private readonly wsMetrics: WsMetricsService
+    private readonly wsMetrics: WsMetricsService,
+    private readonly wsLog: WsLogService
   ) {}
 
   // ── 초기화 ────────────────────────────────────────────────────
@@ -74,6 +76,7 @@ export class WsGateway
       null;
 
     if (!token) {
+      this.wsLog.rejected(client, 'no token');
       client.disconnect();
       return;
     }
@@ -84,18 +87,28 @@ export class WsGateway
         payload && typeof payload.user_id === 'string' ? payload.user_id : null;
 
       if (!userId) {
+        this.wsLog.rejected(client, 'no user_id in token');
         client.disconnect();
         return;
       }
       client.data.userId = userId;
       client.join(userRoom(userId));
       this.wsMetrics.increment();
+      this.wsLog.connect(client);
+      client.onAny((event: string, ...args: unknown[]) =>
+        this.wsLog.inbound(client, event, args[0])
+      );
     } catch (err) {
+      this.wsLog.rejected(
+        client,
+        err instanceof Error ? err.message : 'token verification failed'
+      );
       client.disconnect();
     }
   }
 
   async handleDisconnect(client: Socket) {
+    this.wsLog.disconnect(client);
     if (client.data?.userId) {
       this.wsMetrics.decrement();
     }
@@ -139,7 +152,6 @@ export class WsGateway
     },
     @ConnectedSocket() client: Socket
   ) {
-    this.logger.debug('조인완료');
     const { workspaceId, userName, color, profile = null } = payload;
     const userId = client.data.userId;
 
@@ -218,8 +230,6 @@ export class WsGateway
   ) {
     const userId = client.data.userId;
     const workspaceId = client.data.workspaceId;
-
-    this.logger.debug(workspaceId);
 
     if (!userId || !workspaceId) {
       return { ok: false, error: 'join_workspace 먼저 호출하세요' };
@@ -364,6 +374,11 @@ export class WsGateway
   // ── Broadcast (REST → WS) ────────────────────────────────────
 
   broadcast(event: WsEvent): void {
+    this.wsLog.broadcast(`workspace_event:${event.type}`, {
+      workspaceId: event.workspaceId,
+      userId: event.userId
+    });
+
     // pub/sub 메시지는 모든 인스턴스가 받으므로 자기 소켓에만 emit한다 (다중 인스턴스 중복 전송 방지)
     this.server.local
       .to(event.workspaceId)
@@ -379,6 +394,11 @@ export class WsGateway
   }
 
   broadcastYjsUpdate(nodeId: string, update: Uint8Array): void {
+    this.wsLog.broadcast(YJS_EVENT.SYNC, {
+      nodeId,
+      bytes: update.byteLength
+    });
+
     const encoder = encoding.createEncoder();
     syncProtocol.writeUpdate(encoder, update);
     this.server.to(yjsRoom(nodeId)).emit(YJS_EVENT.SYNC, {

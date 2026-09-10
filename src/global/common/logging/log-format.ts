@@ -25,6 +25,41 @@ export function formatHttpLog(
   return `[Response] ${payload.method} ${payload.url} ${payload.statusCode} - ${payload.ms}ms`;
 }
 
+export type WsLogKind =
+  | 'connect'
+  | 'rejected'
+  | 'disconnect'
+  | 'inbound'
+  | 'broadcast';
+
+export interface WsLogPayload {
+  event: string;
+  socketId: string;
+  userId?: string | null;
+  workspaceId?: string | null;
+  nodeId?: string | null;
+  bytes?: number;
+  reason?: string;
+  /** 개발 환경에서만 채운다 (바이너리는 길이로 치환된 상태) */
+  payload?: unknown;
+}
+
+export function formatWsLog(kind: WsLogKind, payload: WsLogPayload): string {
+  if (isProduction()) {
+    return JSON.stringify({ type: `ws.${kind}`, ...payload });
+  }
+  const parts = [`[WS ${kind}]`, payload.event, `socket=${payload.socketId}`];
+  if (payload.userId) parts.push(`user=${payload.userId}`);
+  if (payload.workspaceId) parts.push(`ws=${payload.workspaceId}`);
+  if (payload.nodeId) parts.push(`node=${payload.nodeId}`);
+  if (payload.bytes !== undefined) parts.push(`${payload.bytes}B`);
+  if (payload.reason) parts.push(`(${payload.reason})`);
+  if (payload.payload !== undefined) {
+    parts.push(JSON.stringify(payload.payload));
+  }
+  return parts.join(' ');
+}
+
 export type PrismaLogKind = 'query' | 'slow' | 'error';
 
 export interface PrismaLogPayload {

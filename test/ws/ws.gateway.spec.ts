@@ -5,6 +5,7 @@ import { YjsDocManager } from '@global/yjs/yjs-doc-manager';
 import { YjsWsAwarenessService } from '@global/yjs/yjs-ws-awareness.service';
 import { MembershipRepository } from '@domain/membership/repository/membership.repository';
 import { PresenceService } from '@domain/ws/service/presence.service';
+import { WsLogService } from '@domain/ws/service/ws-log.service';
 import { WsMetricsService } from '@global/common/metrics';
 import { Socket, Server } from 'socket.io';
 
@@ -62,6 +63,16 @@ describe('WsGateway', () => {
             increment: jest.fn(),
             decrement: jest.fn()
           }
+        },
+        {
+          provide: WsLogService,
+          useValue: {
+            connect: jest.fn(),
+            rejected: jest.fn(),
+            disconnect: jest.fn(),
+            inbound: jest.fn(),
+            broadcast: jest.fn()
+          }
         }
       ]
     }).compile();
@@ -104,6 +115,7 @@ describe('WsGateway', () => {
         handshake: { auth: { token: 'valid-token' }, query: {} },
         disconnect: jest.fn(),
         join: jest.fn(),
+        onAny: jest.fn(),
         data: {}
       } as unknown as Socket;
 
@@ -136,12 +148,55 @@ describe('WsGateway', () => {
         handshake: { auth: {}, query: { token: 'query-token' } },
         disconnect: jest.fn(),
         join: jest.fn(),
+        onAny: jest.fn(),
         data: {}
       } as unknown as Socket;
 
       await gateway.handleConnection(client);
       expect(jwtService.verify).toHaveBeenCalledWith('query-token');
       expect(client.data.userId).toBe('user-456');
+    });
+
+    it('should register an onAny listener that logs inbound events', async () => {
+      (jwtService.verify as jest.Mock).mockReturnValue({ user_id: 'user-789' });
+
+      const client = {
+        handshake: { auth: { token: 'valid-token' }, query: {} },
+        disconnect: jest.fn(),
+        join: jest.fn(),
+        onAny: jest.fn(),
+        data: {}
+      } as unknown as Socket;
+
+      await gateway.handleConnection(client);
+
+      expect(client.onAny).toHaveBeenCalledTimes(1);
+
+      const wsLog = (gateway as unknown as { wsLog: any }).wsLog;
+      expect(wsLog.connect).toHaveBeenCalledWith(client);
+
+      // 등록된 리스너가 실제로 inbound 로그를 남기는지
+      const listener = (client.onAny as jest.Mock).mock.calls[0][0];
+      listener('cursor_move', { workspaceId: 'ws-abc', x: 1, y: 2 });
+      expect(wsLog.inbound).toHaveBeenCalledWith(
+        client,
+        'cursor_move',
+        { workspaceId: 'ws-abc', x: 1, y: 2 }
+      );
+    });
+
+    it('should log the rejection reason when no token is provided', async () => {
+      const client = {
+        handshake: { auth: {}, query: {} },
+        disconnect: jest.fn(),
+        data: {}
+      } as unknown as Socket;
+
+      await gateway.handleConnection(client);
+
+      const wsLog = (gateway as unknown as { wsLog: any }).wsLog;
+      expect(wsLog.rejected).toHaveBeenCalledWith(client, 'no token');
+      expect(wsLog.connect).not.toHaveBeenCalled();
     });
   });
 
@@ -281,6 +336,23 @@ describe('WsGateway', () => {
       expect(
         (gateway.server.to('ws-abc') as unknown as { emit: jest.Mock }).emit
       ).toHaveBeenCalledWith('workspace_event', event);
+    });
+
+    it('should log the broadcast with the event type', () => {
+      const event = {
+        type: 'NODE_DELETE' as const,
+        workspaceId: 'ws-abc',
+        userId: 'user-1',
+        nodeId: 'n1'
+      };
+
+      gateway.broadcast(event);
+
+      const wsLog = (gateway as unknown as { wsLog: any }).wsLog;
+      expect(wsLog.broadcast).toHaveBeenCalledWith(
+        'workspace_event:NODE_DELETE',
+        { workspaceId: 'ws-abc', userId: 'user-1' }
+      );
     });
   });
 });
