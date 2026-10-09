@@ -15,7 +15,11 @@ import { Logger } from '@nestjs/common';
 import * as syncProtocol from 'y-protocols/sync';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
-import { PresenceStateEvent, WsEvent } from '../type/ws.event';
+import {
+  ECHO_SUPPRESSED_TYPES,
+  PresenceStateEvent,
+  WsEvent
+} from '../type/ws.event';
 import { YjsDocManager } from '@global/yjs/yjs-doc-manager';
 import { YjsWsAwarenessService } from '@global/yjs/yjs-ws-awareness.service';
 import { MembershipRepository } from '@domain/membership/repository/membership.repository';
@@ -380,10 +384,16 @@ export class WsGateway
     });
 
     // pub/sub 메시지는 모든 인스턴스가 받으므로 자기 소켓에만 emit한다 (다중 인스턴스 중복 전송 방지)
-    this.server.local
-      .to(event.workspaceId)
-      .except(userRoom(event.userId))
-      .emit('workspace_event', event);
+    const room = this.server.local.to(event.workspaceId);
+
+    // 노드·엣지 이벤트만 발신자 본인을 제외한다 (낙관적 업데이트 중복 방지).
+    // 회의 이벤트 등 그 외 타입의 userId 는 발신자가 아니므로 room 전원에게 보낸다.
+    const target =
+      ECHO_SUPPRESSED_TYPES.has(event.type) && event.userId
+        ? room.except(userRoom(event.userId))
+        : room;
+
+    target.emit('workspace_event', event);
 
     // 노드 삭제 시 Yjs doc 정리
     if (event.type === 'NODE_DELETE') {

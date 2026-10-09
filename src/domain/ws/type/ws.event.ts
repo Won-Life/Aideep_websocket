@@ -72,6 +72,47 @@ export interface EdgeUpdateEvent extends WsEventBase {
   };
 }
 
+// ──────────────────────────────────────────
+// 회의 봇 이벤트 (Spring 백엔드가 Recall 웹훅을 받아 발행)
+// 상태 판정·최초 전이 1회 보장은 백엔드 책임. WS 서버는 그대로 전달만 한다.
+// ──────────────────────────────────────────
+interface MeetingBotEventBase extends WsEventBase {
+  /** 봇을 초대한 사용자. 수신자 필터가 아니라 "누가 시작했는지" 표시용이다 */
+  userId: string;
+  meetingId: string;
+  nodeId: string;
+  botId: string;
+  status: string;
+  occurredAt: string;
+}
+
+/** 사용자가 봇 초대를 요청했고 Recall 봇이 생성됨 */
+export interface MeetingBotRequestedEvent extends MeetingBotEventBase {
+  type: 'MEETING_BOT_REQUESTED';
+}
+
+/** 봇이 회의에 들어가 녹음을 시작함 */
+export interface MeetingBotJoinedEvent extends MeetingBotEventBase {
+  type: 'MEETING_BOT_JOINED';
+}
+
+/** 회의가 끝나고 전사 결과까지 준비됨 */
+export interface MeetingBotLeftEvent extends MeetingBotEventBase {
+  type: 'MEETING_BOT_LEFT';
+}
+
+/** 봇이 실패함. statusSubCode 에 Recall 원문 사유 */
+export interface MeetingBotFailedEvent extends MeetingBotEventBase {
+  type: 'MEETING_BOT_FAILED';
+  statusSubCode: string;
+}
+
+export type MeetingBotEvent =
+  | MeetingBotRequestedEvent
+  | MeetingBotJoinedEvent
+  | MeetingBotLeftEvent
+  | MeetingBotFailedEvent;
+
 export interface CursorMoveEvent {
   userId: string;
   workspaceId: string;
@@ -106,4 +147,24 @@ export type WsEvent =
   | NodeUpdateEvent
   | EdgeCreateEvent
   | EdgeDeleteEvent
-  | EdgeUpdateEvent;
+  | EdgeUpdateEvent
+  | MeetingBotEvent;
+
+/**
+ * 발신자 본인에게 되돌려 보내지 않는(에코 억제) 이벤트 타입.
+ *
+ * 노드·엣지 이벤트는 FE 가 낙관적 업데이트로 화면에 이미 반영했기 때문에 `userId`(= 그 동작을 한 사람)를
+ * 제외해야 중복 렌더가 없다. 반면 회의 이벤트의 `userId` 는 "봇을 초대한 사람"일 뿐 발신자가 아니므로
+ * 억제 대상이 아니다 — 워크스페이스 room 전원에게 보낸다.
+ *
+ * 목록에 없는 타입(백엔드가 먼저 배포한 미지의 타입 포함)은 전원 전달이 기본값이다.
+ */
+export const ECHO_SUPPRESSED_TYPES = new Set<string>([
+  'NODE_MOVE',
+  'NODE_CREATE',
+  'NODE_DELETE',
+  'NODE_UPDATE',
+  'EDGE_CREATE',
+  'EDGE_DELETED',
+  'EDGE_UPDATE'
+]);

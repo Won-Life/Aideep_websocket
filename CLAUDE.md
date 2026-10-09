@@ -113,6 +113,9 @@ test/
   - 워크스페이스 레벨: `join_workspace`, `node_position_live`, `cursor_move` / 서버→클라 `workspace_event`, `presence_state`, `cursor_leave`
   - 문서(노드) 레벨 Yjs: `yjs:join`, `yjs:sync`, `yjs:awareness`, `yjs:leave` (이벤트명 상수는 `@global/yjs/yjs.constants`)
 - **event-bus**: API 서버(추후 Spring)가 Redis 채널로 발행한 이벤트를 구독해 WS 로 팬아웃합니다. `type/event-bus.contract.ts` 는 **양쪽이 공유하는 계약 사본**이므로 변경 시 `Aideep_backend` 쪽과 함께 갱신해야 합니다.
+  - `payload.type` 화이트리스트는 **두지 않습니다**. 모르는 type 도 그대로 room 에 흘려보내 백엔드가 타입을 먼저 배포할 수 있게 합니다 (`envelope.kind` 만 검사).
+  - 노드/엣지 이벤트는 `payload.userId`(= 동작한 사람)를 `user:<id>` room 으로 제외해 낙관적 업데이트 중복을 막습니다. 이 억제 대상은 `ws.event.ts` 의 `ECHO_SUPPRESSED_TYPES` 에 명시돼 있고, 그 밖의 타입(회의 봇 이벤트 `MEETING_BOT_REQUESTED`/`JOINED`/`LEFT`/`FAILED` 등)은 `userId` 가 발신자가 아니므로 워크스페이스 room 전원에게 전달합니다.
+  - 회의 이벤트 payload 는 자족적이라 DB·백엔드 API 를 조회하지 않습니다. 상태 판정과 "최초 전이 1회" 보장은 백엔드 책임이며, 구독자가 없던 동안의 누락 복구는 FE 가 조회 API 로 합니다 (WS 서버는 저장/재생하지 않습니다).
 - **응답/예외**: 모든 응답은 `ResponseInterceptor` 봉투로 감싸지고, 예외는 `AllExceptionsFilter` 가 처리합니다. raw `HttpException` 대신 `@global/common/error` 의 도메인 예외를 쓰세요.
 - **Prisma**: `prisma/schema.prisma` 는 `Aideep_backend` 스키마의 **축소 사본**입니다. 이 프로젝트에서는 `prisma generate` 만 실행하고 **`prisma migrate` 는 절대 실행하지 않습니다** (migrate 소유권은 `Aideep_backend`).
 

@@ -52,6 +52,79 @@ describe('EventBusSubscriber', () => {
     expect(wsGateway.broadcast).toHaveBeenCalledWith(event);
   });
 
+  it.each([
+    ['MEETING_BOT_REQUESTED', 'REQUESTED'],
+    ['MEETING_BOT_JOINED', 'JOINED'],
+    ['MEETING_BOT_LEFT', 'LEFT']
+  ] as const)(
+    '회의 이벤트 %s 를 가공 없이 게이트웨이로 넘긴다',
+    (type, status) => {
+      const event = {
+        type,
+        workspaceId: 'ws-abc',
+        userId: 'user-1',
+        meetingId: 'meeting-1',
+        nodeId: 'node-1',
+        botId: 'bot-1',
+        status,
+        occurredAt: '2026-10-09T02:51:25.449Z'
+      } as unknown as WsEvent;
+
+      subscriber.handleMessage(envelope('WORKSPACE_EVENT', event));
+
+      expect(wsGateway.broadcast).toHaveBeenCalledWith(event);
+    }
+  );
+
+  it('MEETING_BOT_FAILED 의 statusSubCode 를 보존한다', () => {
+    const event = {
+      type: 'MEETING_BOT_FAILED',
+      workspaceId: 'ws-abc',
+      userId: 'user-1',
+      meetingId: 'meeting-1',
+      nodeId: 'node-1',
+      botId: 'bot-1',
+      status: 'FAILED',
+      statusSubCode: 'meeting_not_found',
+      occurredAt: '2026-10-09T02:51:25.449Z'
+    } as unknown as WsEvent;
+
+    subscriber.handleMessage(envelope('WORKSPACE_EVENT', event));
+
+    expect(wsGateway.broadcast).toHaveBeenCalledWith(event);
+  });
+
+  it('transport 지시 필드(targetRoom/socketId)는 payload 로 그대로 넘기고 라우팅에 쓰지 않는다', () => {
+    // 라우팅은 WS 서버의 모델이다 — 백엔드가 전송 지시를 보내도 무시한다
+    const event = {
+      type: 'MEETING_BOT_JOINED',
+      workspaceId: 'ws-abc',
+      userId: 'user-1',
+      meetingId: 'meeting-1',
+      nodeId: 'node-1',
+      botId: 'bot-1',
+      status: 'JOINED',
+      occurredAt: '2026-10-09T02:51:25.449Z',
+      targetRoom: 'should-be-ignored',
+      socketId: 'should-be-ignored'
+    } as unknown as WsEvent;
+
+    subscriber.handleMessage(envelope('WORKSPACE_EVENT', event));
+
+    expect(wsGateway.broadcast).toHaveBeenCalledWith(event);
+  });
+
+  it('모르는 payload.type 도 화이트리스트 없이 그대로 전달한다', () => {
+    const event = {
+      type: 'SOMETHING_NEW',
+      workspaceId: 'ws-abc'
+    } as unknown as WsEvent;
+
+    subscriber.handleMessage(envelope('WORKSPACE_EVENT', event));
+
+    expect(wsGateway.broadcast).toHaveBeenCalledWith(event);
+  });
+
   it('decodes YJS_UPDATE base64 into a Uint8Array', () => {
     subscriber.handleMessage(
       envelope('YJS_UPDATE', {
@@ -68,7 +141,10 @@ describe('EventBusSubscriber', () => {
 
   it.each([
     ['malformed JSON', 'not-json'],
-    ['unsupported version', JSON.stringify({ v: 999, kind: 'WORKSPACE_EVENT' })],
+    [
+      'unsupported version',
+      JSON.stringify({ v: 999, kind: 'WORKSPACE_EVENT' })
+    ],
     ['unknown kind', envelope('SOMETHING_NEW' as any, {} as any)]
   ])('ignores %s without throwing', (_label, message) => {
     expect(() => subscriber.handleMessage(message)).not.toThrow();

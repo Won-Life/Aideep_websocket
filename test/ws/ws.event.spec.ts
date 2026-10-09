@@ -65,6 +65,47 @@ describe('WsEvent JSON 계약', () => {
       userId: 'user-1',
       edgeId: 'edge-1',
       patch: { sourceHandle: 'top' }
+    },
+    {
+      type: 'MEETING_BOT_REQUESTED',
+      workspaceId: 'ws-abc',
+      userId: 'user-1',
+      meetingId: 'meeting-1',
+      nodeId: 'node-1',
+      botId: 'bot-1',
+      status: 'REQUESTED',
+      occurredAt: '2026-10-09T02:51:25.449Z'
+    },
+    {
+      type: 'MEETING_BOT_JOINED',
+      workspaceId: 'ws-abc',
+      userId: 'user-1',
+      meetingId: 'meeting-1',
+      nodeId: 'node-1',
+      botId: 'bot-1',
+      status: 'JOINED',
+      occurredAt: '2026-10-09T02:51:25.449Z'
+    },
+    {
+      type: 'MEETING_BOT_LEFT',
+      workspaceId: 'ws-abc',
+      userId: 'user-1',
+      meetingId: 'meeting-1',
+      nodeId: 'node-1',
+      botId: 'bot-1',
+      status: 'LEFT',
+      occurredAt: '2026-10-09T02:51:25.449Z'
+    },
+    {
+      type: 'MEETING_BOT_FAILED',
+      workspaceId: 'ws-abc',
+      userId: 'user-1',
+      meetingId: 'meeting-1',
+      nodeId: 'node-1',
+      botId: 'bot-1',
+      status: 'FAILED',
+      statusSubCode: 'meeting_not_found',
+      occurredAt: '2026-10-09T02:51:25.449Z'
     }
   ];
 

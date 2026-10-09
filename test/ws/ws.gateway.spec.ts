@@ -178,11 +178,11 @@ describe('WsGateway', () => {
       // 등록된 리스너가 실제로 inbound 로그를 남기는지
       const listener = (client.onAny as jest.Mock).mock.calls[0][0];
       listener('cursor_move', { workspaceId: 'ws-abc', x: 1, y: 2 });
-      expect(wsLog.inbound).toHaveBeenCalledWith(
-        client,
-        'cursor_move',
-        { workspaceId: 'ws-abc', x: 1, y: 2 }
-      );
+      expect(wsLog.inbound).toHaveBeenCalledWith(client, 'cursor_move', {
+        workspaceId: 'ws-abc',
+        x: 1,
+        y: 2
+      });
     });
 
     it('should log the rejection reason when no token is provided', async () => {
@@ -353,6 +353,83 @@ describe('WsGateway', () => {
         'workspace_event:NODE_DELETE',
         { workspaceId: 'ws-abc', userId: 'user-1' }
       );
+    });
+
+    it('노드 이벤트는 발신자 본인(user room)을 제외한다', () => {
+      gateway.broadcast({
+        type: 'NODE_MOVE',
+        workspaceId: 'ws-abc',
+        userId: 'user-1',
+        nodeId: 'n1',
+        x: 1,
+        y: 2
+      });
+
+      expect(gateway.server.except).toHaveBeenCalledWith('user:user-1');
+    });
+
+    it.each([
+      'MEETING_BOT_REQUESTED',
+      'MEETING_BOT_JOINED',
+      'MEETING_BOT_LEFT'
+    ] as const)(
+      '%s 는 초대자를 포함한 워크스페이스 room 전원에게 전달한다',
+      (type) => {
+        const event = {
+          type,
+          workspaceId: 'ws-abc',
+          userId: 'user-1',
+          meetingId: 'meeting-1',
+          nodeId: 'node-1',
+          botId: 'bot-1',
+          status: 'JOINED',
+          occurredAt: '2026-10-09T02:51:25.449Z'
+        };
+
+        gateway.broadcast(event);
+
+        expect(gateway.server.except).not.toHaveBeenCalled();
+        expect(gateway.server.to).toHaveBeenCalledWith('ws-abc');
+        expect(
+          (gateway.server.to('ws-abc') as unknown as { emit: jest.Mock }).emit
+        ).toHaveBeenCalledWith('workspace_event', event);
+      }
+    );
+
+    it('MEETING_BOT_FAILED 의 statusSubCode 를 그대로 전달한다', () => {
+      const event = {
+        type: 'MEETING_BOT_FAILED' as const,
+        workspaceId: 'ws-abc',
+        userId: 'user-1',
+        meetingId: 'meeting-1',
+        nodeId: 'node-1',
+        botId: 'bot-1',
+        status: 'FAILED',
+        statusSubCode: 'meeting_not_found',
+        occurredAt: '2026-10-09T02:51:25.449Z'
+      };
+
+      gateway.broadcast(event);
+
+      expect(gateway.server.except).not.toHaveBeenCalled();
+      expect(
+        (gateway.server.to('ws-abc') as unknown as { emit: jest.Mock }).emit
+      ).toHaveBeenCalledWith('workspace_event', event);
+    });
+
+    it('모르는 type 도 버리지 않고 room 전원에게 전달한다', () => {
+      // 백엔드가 타입을 먼저 추가하고 FE 가 나중에 따라오는 순서를 허용한다
+      const event = {
+        type: 'SOMETHING_NEW',
+        workspaceId: 'ws-abc',
+        userId: 'user-1'
+      } as unknown as Parameters<typeof gateway.broadcast>[0];
+
+      expect(() => gateway.broadcast(event)).not.toThrow();
+      expect(gateway.server.except).not.toHaveBeenCalled();
+      expect(
+        (gateway.server.to('ws-abc') as unknown as { emit: jest.Mock }).emit
+      ).toHaveBeenCalledWith('workspace_event', event);
     });
   });
 });
