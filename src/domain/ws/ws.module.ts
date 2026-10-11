@@ -6,10 +6,17 @@ import { MembershipRepository } from '@domain/membership/repository/membership.r
 import { PresenceService } from './service/presence.service';
 import { WsLogService } from './service/ws-log.service';
 import { MetricsModule } from '@global/common/metrics';
+import { WsTracingInterceptor } from '@global/common/metrics/ws-tracing.interceptor';
 
 @Module({
   imports: [RealtimeAuthModule, YjsModule, MetricsModule],
-  providers: [WsGateway, MembershipRepository, PresenceService, WsLogService],
+  providers: [
+    WsGateway,
+    MembershipRepository,
+    PresenceService,
+    WsLogService,
+    WsTracingInterceptor
+  ],
   exports: [WsGateway]
 })
 export class WsModule {}

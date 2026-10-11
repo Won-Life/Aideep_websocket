@@ -200,6 +200,56 @@ describe('WsGateway', () => {
     });
   });
 
+  describe('connection metrics', () => {
+    const createClient = () =>
+      ({
+        handshake: { auth: { token: 'token' }, query: {} },
+        data: {},
+        join: jest.fn(),
+        onAny: jest.fn(),
+        disconnect: jest.fn()
+      }) as unknown as Socket;
+
+    it('counts an authenticated connection and decrements only once on disconnect', async () => {
+      jwtService.verify = jest.fn().mockReturnValue({ user_id: 'user-1' });
+      const client = createClient();
+      const metrics = (gateway as unknown as { wsMetrics: WsMetricsService })
+        .wsMetrics;
+      await gateway.handleConnection(client);
+      expect(metrics.increment).toHaveBeenCalledTimes(1);
+      await gateway.handleDisconnect(client);
+      await gateway.handleDisconnect(client);
+      expect(metrics.decrement).toHaveBeenCalledTimes(1);
+    });
+
+    it('never decrements for a rejected token', async () => {
+      jwtService.verify = jest.fn().mockImplementation(() => {
+        throw new Error('invalid token');
+      });
+      const client = createClient();
+      const metrics = (gateway as unknown as { wsMetrics: WsMetricsService })
+        .wsMetrics;
+      await gateway.handleConnection(client);
+      await gateway.handleDisconnect(client);
+      expect(metrics.increment).not.toHaveBeenCalled();
+      expect(metrics.decrement).not.toHaveBeenCalled();
+    });
+
+    it('does not decrement when setup fails after setting userId but before counting', async () => {
+      jwtService.verify = jest.fn().mockReturnValue({ user_id: 'user-1' });
+      const client = createClient();
+      (client.join as jest.Mock).mockImplementation(() => {
+        throw new Error('join failed');
+      });
+      const metrics = (gateway as unknown as { wsMetrics: WsMetricsService })
+        .wsMetrics;
+      await gateway.handleConnection(client);
+      await gateway.handleDisconnect(client);
+      expect(metrics.increment).not.toHaveBeenCalled();
+      expect(metrics.decrement).not.toHaveBeenCalled();
+    });
+  });
+
   describe('handleJoin', () => {
     it('should join the client to the workspace room and awareness room', async () => {
       const client = {

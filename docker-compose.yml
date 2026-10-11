@@ -7,6 +7,45 @@ services:
     env_file:
       - .env
     environment:
-      PORT: "3321"
+      PORT: '3321'
+      NODE_ENV: production
+      DD_SERVICE: ${DD_SERVICE:-aideep-websocket}
+      DD_ENV: ${DD_ENV:-prod}
+      DD_VERSION: ${IMAGE_TAG:-develop}
+      DD_TRACE_ENABLED: ${DD_TRACE_ENABLED:-true}
+      DD_LOGS_INJECTION: 'true'
+      DD_TRACE_AGENT_URL: ${DD_TRACE_AGENT_URL:-unix:///var/run/datadog/apm.socket}
+
+    volumes:
+      - type: bind
+        source: ${DD_SOCKET_DIR:-/var/run/datadog}
+        target: /var/run/datadog
+        bind:
+          create_host_path: false
+
+    labels:
+      com.datadoghq.tags.service: ${DD_SERVICE:-aideep-websocket}
+      com.datadoghq.tags.env: ${DD_ENV:-prod}
+      com.datadoghq.tags.version: ${IMAGE_TAG:-develop}
+      com.datadoghq.ad.logs: '[{"source":"nodejs","service":"${DD_SERVICE:-aideep-websocket}"}]'
+      com.datadoghq.ad.checks: >-
+        {"openmetrics":{"init_config":{},"instances":[{
+          "openmetrics_endpoint":"${DD_METRICS_ENDPOINT:-http://host.docker.internal:3321/metrics}",
+          "namespace":"aideep.websocket",
+          "headers":{"Accept":"text/plain"},
+          "metrics":[
+            {"http_requests":"http.requests"},
+            {"http_request_duration_seconds":"http.request.duration"},
+            {"ws_connections_active":"ws.connections.active"},
+            {"process_cpu_user_seconds":"process.cpu.user"},
+            {"process_cpu_system_seconds":"process.cpu.system"},
+            {"process_resident_memory_bytes":"process.memory.resident"},
+            {"nodejs_heap_size_used_bytes":"nodejs.heap.used"},
+            {"nodejs_heap_size_total_bytes":"nodejs.heap.total"},
+            {"nodejs_eventloop_lag_seconds":"nodejs.eventloop.lag"}
+          ],
+          "collect_histogram_buckets":false,
+          "tags":["service:${DD_SERVICE:-aideep-websocket}","env:${DD_ENV:-prod}","version:${IMAGE_TAG:-develop}"]
+        }]}}
 
     restart: unless-stopped

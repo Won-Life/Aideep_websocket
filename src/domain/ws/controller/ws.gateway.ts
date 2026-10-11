@@ -11,7 +11,8 @@ import {
 import { Server, Namespace, Socket } from 'socket.io';
 import { instrument } from '@socket.io/admin-ui';
 import { JwtService } from '@nestjs/jwt';
-import { Logger } from '@nestjs/common';
+import { Logger, UseInterceptors } from '@nestjs/common';
+import { WsTracingInterceptor } from '@global/common/metrics/ws-tracing.interceptor';
 import * as syncProtocol from 'y-protocols/sync';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
@@ -35,6 +36,7 @@ import {
 
 const userRoom = (userId: string) => `user:${userId}`;
 
+@UseInterceptors(WsTracingInterceptor)
 @WebSocketGateway({
   cors: { origin: '*' },
   namespace: '/workspace'
@@ -49,6 +51,7 @@ export class WsGateway
 
   /** socketId → 참여 중인 yjs nodeId 집합 */
   private readonly yjsRooms = new Map<string, Set<string>>();
+  private readonly countedConnections = new WeakSet<Socket>();
 
   constructor(
     private readonly jwtService: JwtService,
@@ -97,7 +100,10 @@ export class WsGateway
       }
       client.data.userId = userId;
       client.join(userRoom(userId));
-      this.wsMetrics.increment();
+      if (!this.countedConnections.has(client)) {
+        this.wsMetrics.increment();
+        this.countedConnections.add(client);
+      }
       this.wsLog.connect(client);
       client.onAny((event: string, ...args: unknown[]) =>
         this.wsLog.inbound(client, event, args[0])
@@ -113,7 +119,7 @@ export class WsGateway
 
   async handleDisconnect(client: Socket) {
     this.wsLog.disconnect(client);
-    if (client.data?.userId) {
+    if (this.countedConnections.delete(client)) {
       this.wsMetrics.decrement();
     }
     const workspaceId = client.data?.workspaceId;
