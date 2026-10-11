@@ -119,7 +119,8 @@ export class WsGateway
     const workspaceId = client.data?.workspaceId;
     const userId = client.data?.userId;
     if (workspaceId) {
-      client.to(workspaceId).emit('cursor_leave', { userId });
+      // 커서 공유 비활성화 — 재개 시 아래 한 줄의 주석을 해제한다
+      // client.to(workspaceId).emit('cursor_leave', { userId });
 
       if (userId) {
         await this.presenceService.removePresence(workspaceId, userId);
@@ -207,6 +208,13 @@ export class WsGateway
     client.to(payload.workspaceId).emit('node_position_live', payload);
   }
 
+  /**
+   * 커서 공유 비활성화 — 현재 제품에서 쓰지 않는다.
+   *
+   * 핸들러는 남겨두어 구버전 FE 가 보내는 `cursor_move` 가 unhandled event 로
+   * 쌓이지 않게만 하고, 릴레이(emit)는 하지 않는다. 재개할 때는 아래 블록의
+   * 주석을 해제하고 handleDisconnect 의 `cursor_leave` 도 같이 살려야 한다.
+   */
   @SubscribeMessage('cursor_move')
   handleCursorMove(
     @MessageBody()
@@ -219,10 +227,10 @@ export class WsGateway
     },
     @ConnectedSocket() client: Socket
   ) {
-    client.to(payload.workspaceId).emit('cursor_move', {
-      userId: client.data.userId,
-      ...payload
-    });
+    // client.to(payload.workspaceId).emit('cursor_move', {
+    //   userId: client.data.userId,
+    //   ...payload
+    // });
   }
 
   // ── Yjs CRDT 이벤트 ──────────────────────────────────────────

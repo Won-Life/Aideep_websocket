@@ -28,8 +28,8 @@
 | -------------------- | ------------------------------------------- | ---------------------------------------------------- |
 | `workspace_event`    | `<workspaceId>` room (타입에 따라 발신자 제외) | Redis event-bus `WORKSPACE_EVENT`                 |
 | `presence_state`     | `<workspaceId>` room 전원                   | `join_workspace`, 연결 해제                          |
-| `cursor_move`        | `<workspaceId>` room, 발신자 제외           | 클라이언트 `cursor_move`                             |
-| `cursor_leave`       | `<workspaceId>` room, 발신자 제외           | 연결 해제                                            |
+| ~~`cursor_move`~~    | –                                           | **비활성화** (§4 참고)                               |
+| ~~`cursor_leave`~~   | –                                           | **비활성화** (§4 참고)                               |
 | `node_position_live` | `<workspaceId>` room, 발신자 제외           | 클라이언트 `node_position_live`                      |
 | `yjs:sync`           | 요청자 1명 또는 `yjs:<nodeId>` room         | `yjs:join`, `yjs:sync`, event-bus `YJS_UPDATE`, 서버 저장 |
 | `yjs:awareness`      | `yjs:<nodeId>` room, 발신자 제외            | 클라이언트 `yjs:awareness`                           |
@@ -125,17 +125,25 @@ Spring 백엔드가 Recall 웹훅을 받아 발행합니다. 여기서 `userId` 
 }
 ```
 
-### `cursor_move`
+### `cursor_move` — 비활성화
 
-클라이언트의 `cursor_move` 를 발신자 제외하고 릴레이합니다. 서버가 `userId` 를 주입합니다.
+커서 공유는 현재 제품에서 쓰지 않아 **서버 릴레이를 중단**했습니다.
+`@SubscribeMessage('cursor_move')` 핸들러는 남겨둬 구버전 FE 가 보내는 이벤트를
+받아 삼키지만(unhandled event 로 쌓이지 않게), 아무에게도 emit 하지 않습니다.
+
+재개 방법: `ws.gateway.ts` 의 `handleCursorMove` 안 emit 블록과
+`handleDisconnect` 의 `cursor_leave` emit, 두 군데 주석을 함께 해제합니다.
 
 ```ts
+// 재개 시 payload (서버가 userId 주입)
 { userId: string, workspaceId: string, x: number, y: number, userName: string, color: string }
 ```
 
-### `cursor_leave`
+### `cursor_leave` — 비활성화
 
-연결 해제 시(`client.data.workspaceId` 가 있을 때) 해당 room 에 발행.
+연결 해제 시 발행하던 이벤트입니다. 위와 함께 중단됐습니다.
+presence 정리(`removePresence`)와 `presence_state` 재브로드캐스트는 **그대로 동작**하므로
+참여자 목록에서 빠지는 것은 여전히 FE 에 전달됩니다.
 
 ```ts
 { userId: string | undefined }
@@ -204,7 +212,7 @@ ACK(핸들러 반환값)는 Socket.IO 콜백으로 전달됩니다.
 | -------------------- | ------------------------------------------------- | ------------------------------------------------- |
 | `join_workspace`     | `{ workspaceId, userName, color, profile? }`      | `{ ok: true }` / `{ ok: false, error }`           |
 | `node_position_live` | `{ workspaceId, nodeId, x, y }`                   | 없음                                              |
-| `cursor_move`        | `{ workspaceId, x, y, userName, color }`          | 없음                                              |
+| `cursor_move`        | `{ workspaceId, x, y, userName, color }`          | 없음 (**비활성화** — 릴레이 안 함)                |
 | `yjs:join`           | `{ nodeId }`                                      | `{ ok: true, readOnly }` / `{ ok: false, error }` |
 | `yjs:sync`           | `{ nodeId, data }`                                | 없음                                              |
 | `yjs:awareness`      | `{ nodeId, data }`                                | 없음                                              |

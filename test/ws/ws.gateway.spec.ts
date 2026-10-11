@@ -315,6 +315,70 @@ describe('WsGateway', () => {
     });
   });
 
+  describe('커서 공유 비활성화', () => {
+    it('cursor_move 를 받아도 릴레이하지 않는다', () => {
+      const mockEmit = jest.fn();
+      const client = {
+        to: jest.fn().mockReturnValue({ emit: mockEmit }),
+        data: { userId: 'user-1' }
+      } as unknown as Socket;
+
+      gateway.handleCursorMove(
+        {
+          workspaceId: 'ws-abc',
+          x: 10,
+          y: 20,
+          userName: 'Alice',
+          color: '#f00'
+        },
+        client
+      );
+
+      expect(client.to).not.toHaveBeenCalled();
+      expect(mockEmit).not.toHaveBeenCalled();
+    });
+
+    it('연결 해제 시 cursor_leave 를 발행하지 않는다', async () => {
+      const mockEmit = jest.fn();
+      const client = {
+        id: 'socket-1',
+        to: jest.fn().mockReturnValue({ emit: mockEmit }),
+        data: { userId: 'user-1', workspaceId: 'ws-abc' }
+      } as unknown as Socket;
+
+      await gateway.handleDisconnect(client);
+
+      expect(mockEmit).not.toHaveBeenCalledWith(
+        'cursor_leave',
+        expect.anything()
+      );
+    });
+
+    it('연결 해제 시 presence 정리와 presence_state 브로드캐스트는 유지된다', async () => {
+      const presenceService = (gateway as unknown as { presenceService: any })
+        .presenceService;
+
+      const client = {
+        id: 'socket-1',
+        to: jest.fn().mockReturnValue({ emit: jest.fn() }),
+        data: { userId: 'user-1', workspaceId: 'ws-abc' }
+      } as unknown as Socket;
+
+      await gateway.handleDisconnect(client);
+
+      expect(presenceService.removePresence).toHaveBeenCalledWith(
+        'ws-abc',
+        'user-1'
+      );
+      expect(
+        (gateway.server.to('ws-abc') as unknown as { emit: jest.Mock }).emit
+      ).toHaveBeenCalledWith('presence_state', {
+        workspaceId: 'ws-abc',
+        members: []
+      });
+    });
+  });
+
   describe('broadcast', () => {
     it('should emit workspace_event to the correct room', () => {
       const event = {

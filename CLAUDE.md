@@ -111,6 +111,7 @@ test/
 - **REST**: prefix `aideep/api` (`/healthz`, `/metrics` 는 제외). Swagger 플러그인이 `nest-cli.json` 에 설정돼 있습니다.
 - **WebSocket**: Socket.IO, namespace `/workspace`. handshake `auth.token` 의 JWT 로 인증.
   - 워크스페이스 레벨: `join_workspace`, `node_position_live`, `cursor_move` / 서버→클라 `workspace_event`, `presence_state`, `cursor_leave`
+    - **커서 공유(`cursor_move`/`cursor_leave`)는 현재 비활성화** 상태입니다. 핸들러는 남아 있고 emit 만 주석 처리돼 있어 재개 시 `ws.gateway.ts` 두 군데 주석을 해제하면 됩니다. 접속자 목록은 `presence_state` 가 따로 담당하므로 영향 없습니다.
   - 문서(노드) 레벨 Yjs: `yjs:join`, `yjs:sync`, `yjs:awareness`, `yjs:leave` (이벤트명 상수는 `@global/yjs/yjs.constants`)
 - **event-bus**: API 서버(추후 Spring)가 Redis 채널로 발행한 이벤트를 구독해 WS 로 팬아웃합니다. `type/event-bus.contract.ts` 는 **양쪽이 공유하는 계약 사본**이므로 변경 시 `Aideep_backend` 쪽과 함께 갱신해야 합니다.
   - `payload.type` 화이트리스트는 **두지 않습니다**. 모르는 type 도 그대로 room 에 흘려보내 백엔드가 타입을 먼저 배포할 수 있게 합니다 (`envelope.kind` 만 검사).

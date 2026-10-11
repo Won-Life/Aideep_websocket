@@ -113,6 +113,10 @@ export type MeetingBotEvent =
   | MeetingBotLeftEvent
   | MeetingBotFailedEvent;
 
+/**
+ * 커서 공유 비활성화 상태 — 서버는 현재 이 이벤트를 발행하지 않는다.
+ * 재개 시 ws.gateway 의 `cursor_move` / `cursor_leave` emit 주석을 해제한다.
+ */
 export interface CursorMoveEvent {
   userId: string;
   workspaceId: string;
