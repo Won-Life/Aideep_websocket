@@ -20,6 +20,14 @@ interface ManagedDoc {
   dirtyForEmbed: boolean;
   /** 재임베딩 job에 실어보낼, 마지막으로 편집한 사용자 */
   lastEditorUserId: string | null;
+  /**
+   * 마지막으로 DB 저장에 성공한 시점의 state vector.
+   * 현재 doc의 state vector와 같으면 저장할 변경이 없다는 뜻이라 DB 쓰기를 건너뛴다.
+   * (저장이 실패하면 갱신하지 않으므로 다음 flush가 반드시 다시 시도한다)
+   */
+  lastSavedStateVector: Buffer | null;
+  /** DB 쓰기를 건너뛸 때 돌려줄, 마지막 저장 결과 */
+  lastPersisted: { version: number; updatedAt: Date } | null;
 }
 
 @Injectable()
@@ -101,7 +109,9 @@ export class YjsDocManager implements OnModuleDestroy {
       idleTimer: null,
       lastActivity: Date.now(),
       dirtyForEmbed: false,
-      lastEditorUserId: null
+      lastEditorUserId: null,
+      lastSavedStateVector: null,
+      lastPersisted: null
     });
 
     return doc;
@@ -165,7 +175,8 @@ export class YjsDocManager implements OnModuleDestroy {
       managed.dirtyForEmbed = true;
       managed.lastEditorUserId = userId;
       managed.lastActivity = Date.now();
-      const persisted = await this.flushDoc(nodeId, result.markdown);
+      // 이미 노드 큐를 점유한 상태라 Locked 버전을 직접 호출한다 (flushDoc은 데드락)
+      const persisted = await this.flushDocLocked(nodeId, result.markdown);
       return { update: result.update, ...persisted };
     });
   }
@@ -204,7 +215,27 @@ export class YjsDocManager implements OnModuleDestroy {
 
   // ── 영속화 ───────────────────────────────────────────────────
 
+  /**
+   * 노드 단위 큐에 태워 같은 노드의 flush가 절대 겹치지 않게 한다.
+   *
+   * 겹치면 두 트랜잭션이 같은 nodes row의 쓰기 락을 두고 Postgres 락 큐에 줄을 서고,
+   * 그 대기 시간이 interactive transaction 예산(기본 5s)에서 깎여 P2028로 터진다.
+   * 문서를 빠르게 열었다 닫으면 디바운스 flush와 이탈 flush가 바로 이 상태가 된다.
+   */
   async flushDoc(
+    nodeId: string,
+    knownMarkdown?: string
+  ): Promise<{ version: number; updatedAt: Date }> {
+    return this.runExclusive(nodeId, () =>
+      this.flushDocLocked(nodeId, knownMarkdown)
+    );
+  }
+
+  /**
+   * 실제 저장 로직. 호출자가 이미 노드 큐를 점유한 상태여야 한다
+   * (`runExclusive` 안에서 다시 `runExclusive`를 부르면 자기 자신을 기다려 데드락).
+   */
+  private async flushDocLocked(
     nodeId: string,
     knownMarkdown?: string
   ): Promise<{ version: number; updatedAt: Date }> {
@@ -217,6 +248,19 @@ export class YjsDocManager implements OnModuleDestroy {
     }
 
     const state = Buffer.from(Y.encodeStateAsUpdate(managed.doc));
+    const stateVector = Buffer.from(Y.encodeStateVector(managed.doc));
+
+    // 저장할 변경이 없으면 DB 트랜잭션을 아예 열지 않는다.
+    // (열었다 닫기만 반복해도 version이 오르고 첨부 diff가 돌던 문제)
+    if (
+      managed.lastPersisted &&
+      managed.lastSavedStateVector?.equals(stateVector)
+    ) {
+      managed.dirtyForEmbed = false;
+      await this.crdtService.saveToRedis(nodeId, state); // TTL 갱신만
+      return managed.lastPersisted;
+    }
+
     const rootText = managed.doc.get('root', Y.XmlText).toString();
     const structuredMarkdown = knownMarkdown ?? yjsDocToMarkdown(managed.doc);
     // Legacy docs may contain plain XmlText instead of Lexical embeds.
@@ -231,6 +275,9 @@ export class YjsDocManager implements OnModuleDestroy {
         managed.workspaceId
       )
     ]);
+
+    managed.lastSavedStateVector = stateVector;
+    managed.lastPersisted = persisted;
 
     // 실제 편집이 있었던 flush에서만 재임베딩 job을 적재 (세이프티 플러시로 인한 중복 방지)
     if (managed.dirtyForEmbed && managed.lastEditorUserId) {
@@ -264,7 +311,11 @@ export class YjsDocManager implements OnModuleDestroy {
    * 백그라운드 flush 실패 처리. 노드가 이미 삭제된 경우(NODE_DELETE 유실 등)는
    * 30초마다 같은 에러가 반복되지 않도록 조용히 정리한다.
    */
-  private handleFlushError(nodeId: string, err: unknown, context: string): void {
+  private handleFlushError(
+    nodeId: string,
+    err: unknown,
+    context: string
+  ): void {
     if (err instanceof NodeGoneError) {
       this.logger.debug(`${nodeId} 노드가 삭제되어 doc을 정리합니다`);
       this.cleanupNode(nodeId).catch((cleanupErr) =>

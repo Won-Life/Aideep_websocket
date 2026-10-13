@@ -113,6 +113,8 @@ test/
   - 워크스페이스 레벨: `join_workspace`, `node_position_live`, `cursor_move` / 서버→클라 `workspace_event`, `presence_state`, `cursor_leave`
     - **커서 공유(`cursor_move`/`cursor_leave`)는 현재 비활성화** 상태입니다. 핸들러는 남아 있고 emit 만 주석 처리돼 있어 재개 시 `ws.gateway.ts` 두 군데 주석을 해제하면 됩니다. 접속자 목록은 `presence_state` 가 따로 담당하므로 영향 없습니다.
   - 문서(노드) 레벨 Yjs: `yjs:join`, `yjs:sync`, `yjs:awareness`, `yjs:leave` (이벤트명 상수는 `@global/yjs/yjs.constants`)
+    - **flush 는 노드 단위로 직렬화됩니다.** `YjsDocManager.flushDoc` 은 `runExclusive(nodeId)` 큐를 거치고, 실제 저장은 `flushDocLocked` 입니다. 이미 큐를 점유한 경로(`appendMarkdown`)는 반드시 `flushDocLocked` 를 직접 호출해야 합니다 — `flushDoc` 을 부르면 자기 자신을 기다려 데드락입니다. 직렬화가 없으면 디바운스/이탈/세이프티 flush 가 겹쳐 같은 `nodes` row 쓰기 락을 두고 줄을 서고, 그 대기 시간이 Prisma interactive transaction 예산(기본 5s)에서 깎여 `P2028` 로 터집니다.
+    - **변경 없는 flush 는 DB 트랜잭션을 열지 않습니다.** `ManagedDoc.lastSavedStateVector` 와 현재 state vector 가 같으면 `saveToDb` 를 건너뛰고 Redis TTL 만 갱신합니다. 이게 없으면 문서를 열었다 닫기만 해도 `version` 이 증가하고 첨부 diff 가 매번 돌았습니다. state vector 는 저장 **성공** 후에만 갱신되므로 실패한 flush 는 다음 flush 가 다시 시도합니다.
 - **event-bus**: API 서버(추후 Spring)가 Redis 채널로 발행한 이벤트를 구독해 WS 로 팬아웃합니다. `type/event-bus.contract.ts` 는 **양쪽이 공유하는 계약 사본**이므로 변경 시 `Aideep_backend` 쪽과 함께 갱신해야 합니다.
   - `payload.type` 화이트리스트는 **두지 않습니다**. 모르는 type 도 그대로 room 에 흘려보내 백엔드가 타입을 먼저 배포할 수 있게 합니다 (`envelope.kind` 만 검사).
   - 노드/엣지 이벤트는 `payload.userId`(= 동작한 사람)를 `user:<id>` room 으로 제외해 낙관적 업데이트 중복을 막습니다. 이 억제 대상은 `ws.event.ts` 의 `ECHO_SUPPRESSED_TYPES` 에 명시돼 있고, 그 밖의 타입(회의 봇 이벤트 `MEETING_BOT_REQUESTED`/`JOINED`/`LEFT`/`FAILED` 등)은 `userId` 가 발신자가 아니므로 워크스페이스 room 전원에게 전달합니다.

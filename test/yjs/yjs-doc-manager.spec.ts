@@ -200,6 +200,127 @@ describe('YjsDocManager', () => {
     });
   });
 
+  describe('flushDoc 직렬화 (P2028 회귀)', () => {
+    it('같은 노드의 flush가 겹쳐 호출되어도 saveToDb가 동시에 실행되지 않는다', async () => {
+      const doc = await manager.getOrCreateDoc('node-1', 'ws-1');
+
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const releases: (() => void)[] = [];
+      mockCrdtService.saveToDb.mockImplementation(async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise<void>((resolve) => releases.push(resolve));
+        inFlight -= 1;
+        return { version: 1, updatedAt: new Date() };
+      });
+
+      const tick = () => new Promise((r) => setImmediate(r));
+      const waitForInFlight = async () => {
+        for (let i = 0; i < 100 && releases.length === 0; i++) await tick();
+        return releases.shift()!;
+      };
+
+      // 첫 flush를 in-flight 상태로 만든다 (여기서 state 캡처 완료)
+      doc.get('root', Y.XmlText).insert(0, 'first');
+      const first = manager.flushDoc('node-1');
+      const releaseFirst = await waitForInFlight();
+      expect(mockCrdtService.saveToDb).toHaveBeenCalledTimes(1);
+
+      // 첫 flush가 아직 안 끝난 상태에서 두 번째 flush를 겹쳐 호출
+      doc.get('root', Y.XmlText).insert(0, 'second');
+      const second = manager.flushDoc('node-1');
+      await tick();
+      await tick();
+
+      // 두 번째는 큐에서 대기만 하고 아직 트랜잭션을 열지 않아야 한다
+      expect(mockCrdtService.saveToDb).toHaveBeenCalledTimes(1);
+
+      releaseFirst();
+      await first;
+      (await waitForInFlight())();
+      await second;
+
+      expect(mockCrdtService.saveToDb).toHaveBeenCalledTimes(2);
+      expect(maxInFlight).toBe(1);
+    });
+
+    it('appendMarkdown 경로는 큐를 이미 점유한 상태라 데드락 없이 완료된다', async () => {
+      const result = await manager.appendMarkdown(
+        'node-1',
+        'ws-1',
+        '## 추가',
+        'user-1'
+      );
+      expect(result.version).toBe(1);
+      expect(mockCrdtService.saveToDb).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('변경 없는 flush는 DB를 건드리지 않는다 (열었다 닫기 반복 회귀)', () => {
+    it('두 번째 flush는 state가 그대로이므로 saveToDb를 호출하지 않는다', async () => {
+      const doc = await manager.getOrCreateDoc('node-1', 'ws-1');
+      doc.get('root', Y.XmlText).insert(0, 'edited');
+
+      await manager.flushDoc('node-1');
+      expect(mockCrdtService.saveToDb).toHaveBeenCalledTimes(1);
+
+      // 편집 없이 열었다 닫기만 반복한 상황
+      await manager.flushDoc('node-1');
+      await manager.flushDoc('node-1');
+      expect(mockCrdtService.saveToDb).toHaveBeenCalledTimes(1);
+    });
+
+    it('건너뛴 flush도 마지막 저장 결과를 그대로 돌려준다', async () => {
+      const doc = await manager.getOrCreateDoc('node-1', 'ws-1');
+      doc.get('root', Y.XmlText).insert(0, 'edited');
+      mockCrdtService.saveToDb.mockResolvedValue({
+        version: 7,
+        updatedAt: new Date('2026-08-26T00:00:00.000Z')
+      });
+
+      const persisted = await manager.flushDoc('node-1');
+      const skipped = await manager.flushDoc('node-1');
+
+      expect(skipped).toEqual(persisted);
+      expect(skipped.version).toBe(7);
+    });
+
+    it('건너뛸 때도 Redis 캐시는 갱신한다', async () => {
+      const doc = await manager.getOrCreateDoc('node-1', 'ws-1');
+      doc.get('root', Y.XmlText).insert(0, 'edited');
+
+      await manager.flushDoc('node-1');
+      mockCrdtService.saveToRedis.mockClear();
+      await manager.flushDoc('node-1');
+
+      expect(mockCrdtService.saveToRedis).toHaveBeenCalledTimes(1);
+    });
+
+    it('다시 편집하면 saveToDb가 재개된다', async () => {
+      const doc = await manager.getOrCreateDoc('node-1', 'ws-1');
+      doc.get('root', Y.XmlText).insert(0, 'first');
+      await manager.flushDoc('node-1');
+      await manager.flushDoc('node-1');
+      expect(mockCrdtService.saveToDb).toHaveBeenCalledTimes(1);
+
+      doc.get('root', Y.XmlText).insert(0, 'second');
+      await manager.flushDoc('node-1');
+      expect(mockCrdtService.saveToDb).toHaveBeenCalledTimes(2);
+    });
+
+    it('DB 저장이 실패하면 다음 flush가 다시 저장을 시도한다', async () => {
+      const doc = await manager.getOrCreateDoc('node-1', 'ws-1');
+      doc.get('root', Y.XmlText).insert(0, 'edited');
+
+      mockCrdtService.saveToDb.mockRejectedValueOnce(new Error('db down'));
+      await expect(manager.flushDoc('node-1')).rejects.toThrow('db down');
+
+      await manager.flushDoc('node-1');
+      expect(mockCrdtService.saveToDb).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('appendMarkdown', () => {
     it('appends through the Lexical binding and flushes the persisted state', async () => {
       const seed = Buffer.from(markdownToYjsUpdate('# 기존 제목'));
