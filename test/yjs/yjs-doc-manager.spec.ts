@@ -2,7 +2,7 @@ import * as Y from 'yjs';
 import { YjsDocManager } from '@global/yjs/yjs-doc-manager';
 import { YjsCrdtService } from '@global/yjs/yjs-crdt.service';
 import { EmbedQueueService } from '@global/redis/embed-queue.service';
-import { DEBOUNCE_SAVE_MS } from '@global/yjs/yjs.constants';
+import { DEBOUNCE_SAVE_MS, FLUSH_CONCURRENCY } from '@global/yjs/yjs.constants';
 import {
   markdownToYjsUpdate,
   yjsDocToMarkdown
@@ -395,6 +395,30 @@ describe('YjsDocManager', () => {
       await jest.advanceTimersByTimeAsync(1);
       expect(mockCrdtService.saveToDb).toHaveBeenCalledTimes(1);
       expect(mockEmbedQueueService.enqueueEmbedJob).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('flushAll 동시성 제한', () => {
+    it('doc 이 많아도 동시에 FLUSH_CONCURRENCY 개까지만 저장한다', async () => {
+      let inFlight = 0;
+      let maxInFlight = 0;
+      mockCrdtService.saveToDb.mockImplementation(async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setImmediate(r));
+        inFlight -= 1;
+        return { version: 1, updatedAt: new Date() };
+      });
+
+      for (let i = 0; i < 20; i++) {
+        const doc = await manager.getOrCreateDoc(`node-${i}`, 'ws-1');
+        doc.get('root', Y.XmlText).insert(0, `edit-${i}`);
+      }
+
+      await manager.flushAll();
+
+      expect(mockCrdtService.saveToDb).toHaveBeenCalledTimes(20);
+      expect(maxInFlight).toBeLessThanOrEqual(FLUSH_CONCURRENCY);
     });
   });
 

@@ -77,13 +77,51 @@ export class YjsCrdtService {
     return { state: null, workspaceId: node.workspace_id };
   }
 
-  @Transactional()
   async saveToDb(
     nodeId: string,
     state: Buffer,
     markdownText: string,
     workspaceId: string
   ): Promise<{ version: number; updatedAt: Date }> {
+    const { persisted, updatedContent } = await this.updateNodeRow(
+      nodeId,
+      state,
+      markdownText
+    );
+
+    // ── 아래는 트랜잭션 밖 ────────────────────────────────────
+    // 첨부 동기화는 파생 인덱스라 nodes 갱신과 원자적일 필요가 없고,
+    // files/file_attachments 를 건드리는 동안 nodes row 쓰기 락을 들고 있으면
+    // 다른 노드의 flush 까지 줄줄이 막혀 트랜잭션 예산(5s)을 넘긴다.
+    await this.fileAttachmentService.syncNodeAttachments(
+      nodeId,
+      workspaceId,
+      updatedContent
+    );
+
+    // workspace sync 캐시 무효화
+    await this.redis
+      .getClient()
+      .del(REDIS_KEYS.WORKSPACE_SYNC(workspaceId))
+      .catch(() => {});
+
+    return persisted;
+  }
+
+  /**
+   * nodes row 갱신만 담는 최소 트랜잭션.
+   * content 를 read-modify-write 해야 해서 트랜잭션이 필요하지만,
+   * 락 보유 구간은 update → commit 한 왕복으로 끝낸다.
+   */
+  @Transactional()
+  private async updateNodeRow(
+    nodeId: string,
+    state: Buffer,
+    markdownText: string
+  ): Promise<{
+    persisted: { version: number; updatedAt: Date };
+    updatedContent: Record<string, any>;
+  }> {
     // 현재 content를 읽어서 markdownBody만 업데이트
     const node = await this.prisma.client.nodes.findUnique({
       where: { node_id: nodeId },
@@ -105,18 +143,9 @@ export class YjsCrdtService {
       }
     });
 
-    await this.fileAttachmentService.syncNodeAttachments(
-      nodeId,
-      workspaceId,
+    return {
+      persisted: { version: updated.version, updatedAt: updated.updated_at },
       updatedContent
-    );
-
-    // workspace sync 캐시 무효화
-    await this.redis
-      .getClient()
-      .del(REDIS_KEYS.WORKSPACE_SYNC(workspaceId))
-      .catch(() => {});
-
-    return { version: updated.version, updatedAt: updated.updated_at };
+    };
   }
 }

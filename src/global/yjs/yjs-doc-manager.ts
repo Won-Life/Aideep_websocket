@@ -5,7 +5,8 @@ import { EmbedQueueService } from '@global/redis/embed-queue.service';
 import {
   DEBOUNCE_SAVE_MS,
   SAFETY_FLUSH_INTERVAL_MS,
-  DOC_IDLE_TIMEOUT_MS
+  DOC_IDLE_TIMEOUT_MS,
+  FLUSH_CONCURRENCY
 } from './yjs.constants';
 import { appendMarkdownToYjsDoc, yjsDocToMarkdown } from './markdown-yjs';
 
@@ -291,18 +292,30 @@ export class YjsDocManager implements OnModuleDestroy {
     return persisted;
   }
 
+  /**
+   * 메모리에 올라온 모든 doc 을 flush 한다.
+   * 동시에 띄우는 개수를 FLUSH_CONCURRENCY 로 제한한다 — 전량 동시 flush 는
+   * doc 수만큼 interactive transaction 을 열어 커넥션 풀을 고갈시킨다.
+   */
   async flushAll(): Promise<void> {
-    const promises: Promise<void>[] = [];
-    for (const nodeId of this.docs.keys()) {
-      promises.push(
-        this.flushDoc(nodeId)
-          .then(() => undefined)
-          .catch((err) =>
-            this.handleFlushError(nodeId, err, 'Safety flush failed')
-          )
-      );
-    }
-    await Promise.all(promises);
+    const nodeIds = [...this.docs.keys()];
+    let cursor = 0;
+
+    const worker = async () => {
+      while (cursor < nodeIds.length) {
+        const nodeId = nodeIds[cursor++];
+        await this.flushDoc(nodeId).catch((err) =>
+          this.handleFlushError(nodeId, err, 'Safety flush failed')
+        );
+      }
+    };
+
+    await Promise.all(
+      Array.from(
+        { length: Math.min(FLUSH_CONCURRENCY, nodeIds.length) },
+        worker
+      )
+    );
   }
 
   // ── 정리 ─────────────────────────────────────────────────────

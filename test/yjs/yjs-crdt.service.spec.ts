@@ -199,5 +199,41 @@ describe('YjsCrdtService', () => {
         markdownBody: '# new body',
       });
     });
+
+    it('첨부 동기화와 캐시 무효화는 트랜잭션 밖에서 실행된다 (P2028 회귀)', async () => {
+      const inTransactionAt: Record<string, boolean> = {};
+      let inTransaction = false;
+
+      // 트랜잭션 러너를 실제처럼 "구간"을 갖게 만든다
+      setTransactionRunner(async (fn) => {
+        inTransaction = true;
+        try {
+          return await fn();
+        } finally {
+          inTransaction = false;
+        }
+      });
+
+      mockPrismaFindUnique.mockResolvedValue({ content: {} });
+      mockPrismaUpdate.mockImplementation(async () => {
+        inTransactionAt['nodes.update'] = inTransaction;
+        return {};
+      });
+      mockSyncNodeAttachments.mockImplementation(async () => {
+        inTransactionAt['syncNodeAttachments'] = inTransaction;
+      });
+      mockRedisDel.mockImplementation(async () => {
+        inTransactionAt['redis.del'] = inTransaction;
+        return 1;
+      });
+
+      await service.saveToDb('node-1', Buffer.from([1]), '# body', 'ws-1');
+
+      expect(inTransactionAt['nodes.update']).toBe(true);
+      expect(inTransactionAt['syncNodeAttachments']).toBe(false);
+      expect(inTransactionAt['redis.del']).toBe(false);
+
+      setTransactionRunner((fn) => fn()); // 원복
+    });
   });
 });
