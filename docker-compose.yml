@@ -1,6 +1,6 @@
 services:
   app:
-    image: seoki/aideep-ws:${IMAGE_TAG:-develop}
+    image: seoki/aideep-ws:${IMAGE_TAG:-local}
     container_name: aideep-ws
 
     network_mode: host
