@@ -66,12 +66,39 @@ export class WsGateway
   // ── 초기화 ────────────────────────────────────────────────────
 
   afterInit(server: Namespace) {
+    this.logInvalidNamespaces(server.server);
+
     // admin-ui는 인증 없이 열리므로 명시적으로 켠 환경에서만 붙인다
     if (process.env.REALTIME_ADMIN_UI !== 'true') return;
     instrument(server.server, {
       auth: false,
       mode: 'development'
     });
+  }
+
+  /**
+   * 등록되지 않은 namespace 요청은 socket.io 가 handleConnection 이전에 CONNECT_ERROR
+   * ("Invalid namespace") 로 거절하므로 게이트웨이 훅에서는 보이지 않는다.
+   * 공개 훅이 없어 private `_checkNamespace` 를 감싸 거절 시점에 요청 이름을 남긴다.
+   */
+  private logInvalidNamespaces(io: Server): void {
+    const target = io as unknown as {
+      _checkNamespace?: (
+        name: string,
+        auth: unknown,
+        fn: (nsp: unknown) => void
+      ) => void;
+    };
+    const original = target._checkNamespace;
+    if (typeof original !== 'function') return;
+
+    target._checkNamespace = (name, auth, fn) =>
+      original.call(io, name, auth, (nsp: unknown) => {
+        if (!nsp) {
+          this.logger.warn(`[WS] rejected invalid namespace nsp=${name}`);
+        }
+        fn(nsp);
+      });
   }
 
   // ── 연결 / 해제 ───────────────────────────────────────────────
@@ -394,7 +421,12 @@ export class WsGateway
   broadcast(event: WsEvent): void {
     this.wsLog.broadcast(`workspace_event:${event.type}`, {
       workspaceId: event.workspaceId,
-      userId: event.userId
+      userId: event.userId,
+      // 런타임 server 는 /workspace Namespace 라 adapter 가 프로퍼티다 (타입은 Server 로 잡혀 있음)
+      recipients:
+        (this.server as unknown as Namespace).adapter?.rooms.get(
+          event.workspaceId
+        )?.size ?? 0
     });
 
     // pub/sub 메시지는 모든 인스턴스가 받으므로 자기 소켓에만 emit한다 (다중 인스턴스 중복 전송 방지)

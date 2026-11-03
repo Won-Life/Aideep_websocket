@@ -13,6 +13,13 @@ const HIGH_FREQUENCY_EVENTS = new Set<string>([
   YJS_WS_EVENT.AWARENESS
 ]);
 
+/**
+ * 인바운드 로그를 아예 남기지 않는 이벤트.
+ * 커서 공유가 비활성화돼 핸들러가 no-op 인데, 구버전 FE 가 계속 보내는 cursor_move 가
+ * dev(silly) 에서 verbose 로 도배되는 걸 막는다. 커서 공유를 재개하면 여기서 뺀다.
+ */
+const SILENT_INBOUND_EVENTS = new Set<string>(['cursor_move']);
+
 /** Yjs 페이로드는 원소 수천 개짜리 number[] 라 그대로 찍으면 로그가 폭발한다 */
 const isBinaryLike = (value: unknown): boolean =>
   Buffer.isBuffer(value) ||
@@ -87,6 +94,8 @@ export class WsLogService {
   }
 
   inbound(client: Socket, event: string, payload: unknown): void {
+    if (SILENT_INBOUND_EVENTS.has(event)) return;
+
     const highFrequency = HIGH_FREQUENCY_EVENTS.has(event);
     // prod 에서 고빈도 이벤트는 어차피 버려지므로 요약 계산조차 하지 않는다
     if (highFrequency && isProduction()) return;

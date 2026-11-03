@@ -465,7 +465,7 @@ describe('WsGateway', () => {
       const wsLog = (gateway as unknown as { wsLog: any }).wsLog;
       expect(wsLog.broadcast).toHaveBeenCalledWith(
         'workspace_event:NODE_DELETE',
-        { workspaceId: 'ws-abc', userId: 'user-1' }
+        { workspaceId: 'ws-abc', userId: 'user-1', recipients: 0 }
       );
     });
 
@@ -544,6 +544,34 @@ describe('WsGateway', () => {
       expect(
         (gateway.server.to('ws-abc') as unknown as { emit: jest.Mock }).emit
       ).toHaveBeenCalledWith('workspace_event', event);
+    });
+  });
+
+  describe('afterInit - invalid namespace 로그', () => {
+    const setup = (result: unknown) => {
+      const original = jest.fn((_n, _a, fn) => fn(result));
+      const io: any = { _checkNamespace: original };
+      const warn = jest
+        .spyOn((gateway as any).logger, 'warn')
+        .mockImplementation();
+      gateway.afterInit({ server: io } as any);
+      const fn = jest.fn();
+      io._checkNamespace('/workspace/workspace', {}, fn);
+      return { fn, warn };
+    };
+
+    it('거부된 namespace 는 이름과 함께 warn 로그를 남기고 결과를 그대로 전달한다', () => {
+      const { fn, warn } = setup(false);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('nsp=/workspace/workspace')
+      );
+      expect(fn).toHaveBeenCalledWith(false);
+    });
+
+    it('허용된 namespace 는 로그를 남기지 않는다', () => {
+      const { fn, warn } = setup(true);
+      expect(warn).not.toHaveBeenCalled();
+      expect(fn).toHaveBeenCalledWith(true);
     });
   });
 });

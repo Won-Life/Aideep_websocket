@@ -39,6 +39,8 @@ export interface WsLogPayload {
   workspaceId?: string | null;
   nodeId?: string | null;
   bytes?: number;
+  /** broadcast 시점에 이 인스턴스의 대상 room 에 있던 소켓 수 */
+  recipients?: number;
   reason?: string;
   /** 개발 환경에서만 채운다 (바이너리는 길이로 치환된 상태) */
   payload?: unknown;
@@ -53,6 +55,7 @@ export function formatWsLog(kind: WsLogKind, payload: WsLogPayload): string {
   if (payload.workspaceId) parts.push(`ws=${payload.workspaceId}`);
   if (payload.nodeId) parts.push(`node=${payload.nodeId}`);
   if (payload.bytes !== undefined) parts.push(`${payload.bytes}B`);
+  if (payload.recipients !== undefined) parts.push(`to=${payload.recipients}`);
   if (payload.reason) parts.push(`(${payload.reason})`);
   if (payload.payload !== undefined) {
     parts.push(JSON.stringify(payload.payload));

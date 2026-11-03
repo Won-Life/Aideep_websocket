@@ -43,13 +43,25 @@ describe('WsLogService', () => {
     });
 
     it('should log high frequency events at verbose level', () => {
+      service.inbound(makeClient({ userId: 'u1' }), 'node_position_live', {
+        workspaceId: 'ws-1',
+        nodeId: 'n1',
+        x: 1,
+        y: 2
+      });
+
+      expect(verbose).toHaveBeenCalledTimes(1);
+      expect(log).not.toHaveBeenCalled();
+    });
+
+    it('should not log cursor_move inbound at all (cursor sharing disabled)', () => {
       service.inbound(makeClient({ userId: 'u1' }), 'cursor_move', {
         workspaceId: 'ws-1',
         x: 1,
         y: 2
       });
 
-      expect(verbose).toHaveBeenCalledTimes(1);
+      expect(verbose).not.toHaveBeenCalled();
       expect(log).not.toHaveBeenCalled();
     });
 
