@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { RedisService } from '@global/redis/redis.service';
 import { WsGateway } from '@domain/ws/controller/ws.gateway';
+import { NodeContentService } from '@domain/node-content/service/node-content.service';
 import { EventBusSubscriber } from '@domain/event-bus/service/event-bus.subscriber';
 import {
   EVENT_BUS_CONTRACT_VERSION,
@@ -24,19 +25,40 @@ const envelope = (
 describe('EventBusSubscriber', () => {
   let subscriber: EventBusSubscriber;
   let wsGateway: { broadcast: jest.Mock; broadcastYjsUpdate: jest.Mock };
+  let nodeContentService: { applyNodeBodyPatch: jest.Mock };
 
   beforeEach(async () => {
     wsGateway = { broadcast: jest.fn(), broadcastYjsUpdate: jest.fn() };
+    nodeContentService = {
+      applyNodeBodyPatch: jest.fn().mockResolvedValue(undefined)
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         EventBusSubscriber,
         { provide: RedisService, useValue: { createSubscriber: jest.fn() } },
-        { provide: WsGateway, useValue: wsGateway }
+        { provide: WsGateway, useValue: wsGateway },
+        { provide: NodeContentService, useValue: nodeContentService }
       ]
     }).compile();
 
     subscriber = module.get<EventBusSubscriber>(EventBusSubscriber);
+  });
+
+  it('NODE_BODY_PATCH는 중계하지 않고 본문 적용 서비스로 넘긴다', () => {
+    const payload = {
+      workspaceId: 'ws-abc',
+      nodeId: 'node-1',
+      markdown: '## AI가 쓴 본문',
+      actorId: 'system:ai',
+      commandEventId: '44444444-4444-4444-8444-444444444444'
+    };
+
+    subscriber.handleMessage(envelope('NODE_BODY_PATCH', payload));
+
+    expect(nodeContentService.applyNodeBodyPatch).toHaveBeenCalledWith(payload);
+    expect(wsGateway.broadcast).not.toHaveBeenCalled();
+    expect(wsGateway.broadcastYjsUpdate).not.toHaveBeenCalled();
   });
 
   it('dispatches WORKSPACE_EVENT payload to the gateway untouched', () => {

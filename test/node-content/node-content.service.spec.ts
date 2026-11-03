@@ -167,4 +167,69 @@ describe('NodeContentService', () => {
 
     expect(yjsDocManager.appendMarkdown).not.toHaveBeenCalled();
   });
+
+  describe('applyNodeBodyPatch', () => {
+    const nodeBodyPatch = {
+      workspaceId: MOCK_WORKSPACE_ID,
+      nodeId: MOCK_NODE_ID,
+      markdown: '## AI가 쓴 본문',
+      actorId: 'system:ai',
+      commandEventId: '44444444-4444-4444-8444-444444444444'
+    };
+
+    it('멤버십 검사 없이 본문을 반영하고 Yjs 업데이트를 전파한다', async () => {
+      await service.applyNodeBodyPatch(nodeBodyPatch);
+
+      expect(membershipRepository.checkWorkspace).not.toHaveBeenCalled();
+      expect(yjsDocManager.appendMarkdown).toHaveBeenCalledWith(
+        MOCK_NODE_ID,
+        MOCK_WORKSPACE_ID,
+        nodeBodyPatch.markdown,
+        'system:ai'
+      );
+      expect(wsGateway.broadcastYjsUpdate).toHaveBeenCalledWith(
+        MOCK_NODE_ID,
+        expect.any(Uint8Array)
+      );
+    });
+
+    it('같은 commandEventId가 다시 오면 본문을 두 번 쓰지 않는다', async () => {
+      mockRedisClient.set.mockResolvedValueOnce(null);
+
+      await service.applyNodeBodyPatch(nodeBodyPatch);
+
+      expect(yjsDocManager.appendMarkdown).not.toHaveBeenCalled();
+    });
+
+    it('마크다운 노드가 아니면 본문을 쓰지 않는다', async () => {
+      nodeContentRepository.selectNodeById.mockResolvedValue({
+        version: 2,
+        content: { dataType: 'IMAGE' }
+      });
+
+      await service.applyNodeBodyPatch(nodeBodyPatch);
+
+      expect(yjsDocManager.appendMarkdown).not.toHaveBeenCalled();
+      expect(mockRedisClient.set).not.toHaveBeenCalled();
+    });
+
+    it('노드가 없으면 예외를 올리지 않고 넘어간다', async () => {
+      nodeContentRepository.selectNodeById.mockResolvedValue(null);
+
+      await expect(
+        service.applyNodeBodyPatch(nodeBodyPatch)
+      ).resolves.toBeUndefined();
+      expect(yjsDocManager.appendMarkdown).not.toHaveBeenCalled();
+    });
+
+    it('반영에 실패하면 멱등 키를 풀어 재시도를 막지 않는다', async () => {
+      yjsDocManager.appendMarkdown.mockRejectedValueOnce(new Error('yjs down'));
+
+      await expect(
+        service.applyNodeBodyPatch(nodeBodyPatch)
+      ).resolves.toBeUndefined();
+      expect(mockRedisClient.del).toHaveBeenCalled();
+      expect(wsGateway.broadcastYjsUpdate).not.toHaveBeenCalled();
+    });
+  });
 });

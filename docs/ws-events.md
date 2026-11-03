@@ -46,11 +46,11 @@ Redis 채널 `aideep.realtime.v1` 로 들어온 `kind: 'WORKSPACE_EVENT'` 봉투
 // 봉투 (API 서버 ↔ WS 서버 계약, event-bus.contract.ts)
 {
   v: 1,
-  kind: 'WORKSPACE_EVENT' | 'YJS_UPDATE',
+  kind: 'WORKSPACE_EVENT' | 'YJS_UPDATE' | 'NODE_BODY_PATCH',
   messageId: string,
   publishedAt: string,
   origin: string,
-  payload: WsEvent | YjsUpdatePayload
+  payload: WsEvent | YjsUpdatePayload | NodeBodyPatchPayload
 }
 ```
 
@@ -61,6 +61,12 @@ Redis 채널 `aideep.realtime.v1` 로 들어온 `kind: 'WORKSPACE_EVENT'` 봉투
   (FE 낙관적 업데이트 중복 방지). 그 밖의 type 은 room 전원에게 전달.
 - 다중 인스턴스 중복 전송을 막기 위해 `server.local.to(...)` 로 자기 인스턴스 소켓에만 emit.
 - `type === 'NODE_DELETE'` 면 전송 후 해당 노드의 Yjs doc 을 정리(`cleanupNode`).
+- `kind: 'NODE_BODY_PATCH'` 는 중계 이벤트가 **아닙니다**. 클라이언트로 보내지 않고
+  `NodeContentService.applyNodeBodyPatch()` 가 Y.Doc 에 직접 반영하며, 그 결과는 `yjs:sync`
+  (`broadcastYjsUpdate`)로 나갑니다. payload 는
+  `{ workspaceId, nodeId, markdown, actorId, commandEventId }` (평면), 연산은 append 입니다.
+  API 서버가 보내는 명령이라 멤버십/role 검사를 하지 않고, `commandEventId` 로 중복 적용만 막습니다.
+  Pub/Sub 이라 재배달이 없어 실패하면 본문만 빠진 채 남습니다(로그만 남김).
 
 ### 3.1 노드 / 엣지 이벤트 (에코 억제 대상)
 
@@ -178,7 +184,7 @@ presence 정리(`removePresence`)와 `presence_state` 재브로드캐스트는 *
 ```
 
 - `broadcastYjsUpdate()` 호출 주체: event-bus `kind: 'YJS_UPDATE'`(payload `{ nodeId, updateBase64 }`),
-  그리고 `NodeContentService` 의 서버측 문서 반영.
+  event-bus `kind: 'NODE_BODY_PATCH'`, 그리고 `NodeContentService` 의 서버측 문서 반영.
 - **VIEWER 권한**(`membership.role === 'VIEWER'`)의 update 는 중계하지 않고 버립니다(저장도 안 함).
 - update 중계 시 `scheduleSave(nodeId, userId)` 로 디바운스 저장이 걸립니다.
 

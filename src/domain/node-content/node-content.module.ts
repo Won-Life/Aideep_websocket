@@ -10,6 +10,7 @@ import { NodeContentRepository } from './repository/node-content.repository';
 @Module({
   imports: [RealtimeAuthModule, YjsModule, WsModule],
   controllers: [NodeContentController],
-  providers: [NodeContentService, NodeContentRepository, MembershipRepository]
+  providers: [NodeContentService, NodeContentRepository, MembershipRepository],
+  exports: [NodeContentService]
 })
 export class NodeContentModule {}
