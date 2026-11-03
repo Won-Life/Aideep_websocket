@@ -8,7 +8,11 @@ import {
   DOC_IDLE_TIMEOUT_MS,
   FLUSH_CONCURRENCY
 } from './yjs.constants';
-import { appendMarkdownToYjsDoc, yjsDocToMarkdown } from './markdown-yjs';
+import {
+  appendMarkdownToYjsDoc,
+  yjsDocToAttachmentContent,
+  yjsDocToMarkdown
+} from './markdown-yjs';
 
 interface ManagedDoc {
   doc: Y.Doc;
@@ -273,7 +277,8 @@ export class YjsDocManager implements OnModuleDestroy {
         nodeId,
         state,
         markdownText,
-        managed.workspaceId
+        managed.workspaceId,
+        yjsDocToAttachmentContent(managed.doc)
       )
     ]);
 

@@ -163,7 +163,8 @@ describe('YjsDocManager', () => {
         'node-1',
         expect.any(Buffer),
         'Flush me',
-        'ws-1'
+        'ws-1',
+        { editorState: expect.any(Object) }
       );
     });
 

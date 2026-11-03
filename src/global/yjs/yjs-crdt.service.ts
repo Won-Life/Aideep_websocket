@@ -81,7 +81,8 @@ export class YjsCrdtService {
     nodeId: string,
     state: Buffer,
     markdownText: string,
-    workspaceId: string
+    workspaceId: string,
+    attachmentContent: Record<string, unknown> = {}
   ): Promise<{ version: number; updatedAt: Date }> {
     const { persisted, updatedContent } = await this.updateNodeRow(
       nodeId,
@@ -93,11 +94,12 @@ export class YjsCrdtService {
     // 첨부 동기화는 파생 인덱스라 nodes 갱신과 원자적일 필요가 없고,
     // files/file_attachments 를 건드리는 동안 nodes row 쓰기 락을 들고 있으면
     // 다른 노드의 flush 까지 줄줄이 막혀 트랜잭션 예산(5s)을 넘긴다.
-    await this.fileAttachmentService.syncNodeAttachments(
-      nodeId,
-      workspaceId,
-      updatedContent
-    );
+    // 본문 이미지/파일 URL 은 markdownBody 에 나오지 않으므로 Yjs 에서 뽑은
+    // attachmentContent 를 합쳐 URL 을 찾는다. 저장되는 content 에는 섞지 않는다.
+    await this.fileAttachmentService.syncNodeAttachments(nodeId, workspaceId, {
+      ...updatedContent,
+      ...attachmentContent
+    });
 
     // workspace sync 캐시 무효화
     await this.redis

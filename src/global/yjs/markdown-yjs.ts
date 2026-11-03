@@ -8,11 +8,108 @@ import {
   TRANSFORMERS
 } from '@lexical/markdown';
 import { HeadingNode, QuoteNode } from '@lexical/rich-text';
+import { DecoratorNode, type SerializedLexicalNode } from 'lexical';
 import { createBinding, syncLexicalUpdateToYjs } from '@lexical/yjs';
 import * as Y from 'yjs';
 
-// 클라 NotionEditor의 등록 노드 중, 기본 TRANSFORMERS가 markdown에서 만들 수 있는 것만.
-// Table/Image/File은 기본 마크다운 변환으로 생성되지 않으므로 서버에선 등록 불필요.
+// 클라 NotionEditor의 ImageNode/FileNode 와 type·직렬화 필드를 맞춘 서버용 노드.
+// 렌더링은 필요 없다. 다만 미등록 노드가 Yjs 문서에 있으면 바인딩이
+// "Node image is not registered" 로 실패하므로 등록은 필수다.
+// markdown 변환은 기본 TRANSFORMERS 그대로라 본문 텍스트(markdownBody)엔 나타나지 않는다.
+type SerializedImageNode = SerializedLexicalNode & {
+  src: string;
+  caption?: string;
+};
+
+type SerializedFileNode = SerializedLexicalNode & {
+  name: string;
+  size: number;
+  dataUrl?: string;
+};
+
+class ImageNode extends DecoratorNode<null> {
+  __src: string;
+  __caption: string;
+
+  static getType(): string {
+    return 'image';
+  }
+  static clone(node: ImageNode): ImageNode {
+    return new ImageNode(node.__src, node.__caption, node.__key);
+  }
+  static importJSON(s: SerializedImageNode): ImageNode {
+    return new ImageNode(s.src, s.caption ?? '');
+  }
+
+  constructor(src: string, caption = '', key?: string) {
+    super(key);
+    this.__src = src;
+    this.__caption = caption;
+  }
+
+  exportJSON() {
+    return {
+      type: 'image',
+      version: 1,
+      src: this.__src,
+      caption: this.__caption
+    };
+  }
+  createDOM(): any {
+    throw new Error('ImageNode 는 헤드리스 전용이라 DOM 을 만들지 않는다');
+  }
+  updateDOM(): false {
+    return false;
+  }
+  decorate(): null {
+    return null;
+  }
+}
+
+class FileNode extends DecoratorNode<null> {
+  __name: string;
+  __size: number;
+  __dataUrl: string;
+
+  static getType(): string {
+    return 'file';
+  }
+  static clone(node: FileNode): FileNode {
+    return new FileNode(node.__name, node.__size, node.__dataUrl, node.__key);
+  }
+  static importJSON(s: SerializedFileNode): FileNode {
+    return new FileNode(s.name, s.size, s.dataUrl ?? '');
+  }
+
+  constructor(name: string, size: number, dataUrl: string, key?: string) {
+    super(key);
+    this.__name = name;
+    this.__size = size;
+    this.__dataUrl = dataUrl;
+  }
+
+  exportJSON() {
+    return {
+      type: 'file',
+      version: 1,
+      name: this.__name,
+      size: this.__size,
+      dataUrl: this.__dataUrl
+    };
+  }
+  createDOM(): any {
+    throw new Error('FileNode 는 헤드리스 전용이라 DOM 을 만들지 않는다');
+  }
+  updateDOM(): false {
+    return false;
+  }
+  decorate(): null {
+    return null;
+  }
+}
+
+// 클라 NotionEditor의 등록 노드 중 서버가 읽어야 하는 것.
+// Table 은 기본 마크다운 변환으로 생성되지 않으므로 서버에선 등록 불필요.
 const NODES = [
   HeadingNode,
   QuoteNode,
@@ -21,7 +118,9 @@ const NODES = [
   CodeNode,
   CodeHighlightNode,
   LinkNode,
-  AutoLinkNode
+  AutoLinkNode,
+  ImageNode,
+  FileNode
 ];
 
 // createBinding은 provider를 안 쓰고, syncLexicalUpdateToYjs는 셀렉션 동기화 경로에서만 쓴다.
@@ -125,6 +224,17 @@ export function yjsDocToMarkdown(doc: Y.Doc): string {
   return editor
     .getEditorState()
     .read(() => $convertToMarkdownString(TRANSFORMERS));
+}
+
+/**
+ * 첨부 동기화(syncNodeAttachments)용 content.
+ * 본문 이미지/파일 노드의 S3 URL 은 markdownBody 에 나오지 않으므로,
+ * Yjs 문서를 Lexical 상태 JSON 으로 풀어 URL 이 문자열로 담기게 한다.
+ * (저장용이 아니라 URL 추출 입력용이다)
+ */
+export function yjsDocToAttachmentContent(doc: Y.Doc): Record<string, unknown> {
+  const { editor } = createDocBinding(doc);
+  return { editorState: editor.getEditorState().toJSON() };
 }
 
 export function appendMarkdownToYjsDoc(

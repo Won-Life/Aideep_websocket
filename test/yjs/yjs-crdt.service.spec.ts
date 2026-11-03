@@ -200,6 +200,35 @@ describe('YjsCrdtService', () => {
       });
     });
 
+    it('본문 이미지/파일 URL 이 담긴 attachmentContent 를 첨부 동기화 입력에 합친다', async () => {
+      mockPrismaFindUnique.mockResolvedValue({
+        content: { dataType: 'MARKDOWN', markdownBody: 'old' },
+      });
+      mockPrismaUpdate.mockResolvedValue({});
+      mockRedisDel.mockResolvedValue(1);
+
+      const editorState = {
+        root: { children: [{ type: 'image', src: 'https://b.s3.r.amazonaws.com/uploads/a.png' }] },
+      };
+      await service.saveToDb('node-1', Buffer.from([1]), '# body', 'ws-1', {
+        editorState,
+      });
+
+      expect(mockSyncNodeAttachments).toHaveBeenCalledWith('node-1', 'ws-1', {
+        dataType: 'MARKDOWN',
+        markdownBody: '# body',
+        editorState,
+      });
+      // 저장되는 content 에는 첨부 추출용 editorState 가 섞이지 않는다
+      expect(mockPrismaUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            content: { dataType: 'MARKDOWN', markdownBody: '# body' },
+          }),
+        }),
+      );
+    });
+
     it('첨부 동기화와 캐시 무효화는 트랜잭션 밖에서 실행된다 (P2028 회귀)', async () => {
       const inTransactionAt: Record<string, boolean> = {};
       let inTransaction = false;
